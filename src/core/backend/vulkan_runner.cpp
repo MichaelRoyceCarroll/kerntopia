@@ -109,37 +109,50 @@ static Result<void> LoadVulkanLoader() {
     
     RuntimeLoader loader;
     
-    // Try to find Vulkan loader - check standard system paths first
-    std::vector<std::string> vulkan_paths = {
-        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
-        "/usr/lib/x86_64-linux-gnu/libvulkan.so",
-        "/usr/lib/libvulkan.so.1",
-        "/usr/lib/libvulkan.so"
-    };
+    // Use same search strategy as detection: respect LD_LIBRARY_PATH first, then system paths
+    std::vector<std::string> vulkan_candidates;
+    std::string selected_loader;
     
-    // Try standard system paths first
-    for (const std::string& path : vulkan_paths) {
-        auto load_result = loader.LoadLibrary(path);
-        if (load_result) {
-            vulkan_loader_handle = *load_result;
-            KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Loaded Vulkan loader: " + path);
-            break;
+    // First priority: Use ScanForLibraries (respects LD_LIBRARY_PATH)
+    std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
+    auto scan_result = loader.ScanForLibraries(vulkan_patterns);
+    if (scan_result) {
+        for (const auto& [name, lib_info] : *scan_result) {
+            vulkan_candidates.push_back(lib_info.full_path);
         }
     }
     
-    // Fallback to library search if direct paths fail
-    if (!vulkan_loader_handle) {
-        std::vector<std::string> vulkan_libs = {"vulkan", "vulkan-1"};
-        for (const std::string& lib : vulkan_libs) {
-            auto find_result = loader.FindLibrary(lib);
-            if (find_result) {
-                auto load_result = loader.LoadLibrary(find_result->full_path);
-                if (load_result) {
-                    vulkan_loader_handle = *load_result;
-                    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Loaded Vulkan loader: " + find_result->full_path);
-                    break;
-                }
-            }
+    // Second priority: Add standard system paths as fallbacks
+    std::vector<std::string> system_paths = {
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so",
+        "/usr/lib/libvulkan.so.1", 
+        "/usr/lib/libvulkan.so"
+    };
+    
+    // Add system paths that weren't already found by scan
+    for (const std::string& path : system_paths) {
+        if (std::find(vulkan_candidates.begin(), vulkan_candidates.end(), path) == vulkan_candidates.end()) {
+            vulkan_candidates.push_back(path);
+        }
+    }
+    
+    // Log all candidates found
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Vulkan loader candidates found: " + std::to_string(vulkan_candidates.size()));
+    for (size_t i = 0; i < vulkan_candidates.size(); ++i) {
+        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "  [" + std::to_string(i+1) + "] " + vulkan_candidates[i]);
+    }
+    
+    // Try to load first successfully loadable candidate (respects search priority)
+    for (const std::string& candidate : vulkan_candidates) {
+        auto load_result = loader.LoadLibrary(candidate);
+        if (load_result) {
+            vulkan_loader_handle = *load_result;
+            selected_loader = candidate;
+            KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Selected Vulkan loader: " + candidate);
+            break;
+        } else {
+            KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Failed to load candidate: " + candidate);
         }
     }
     
