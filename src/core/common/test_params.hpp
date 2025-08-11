@@ -49,6 +49,37 @@ enum class ImageFormat {
 };
 
 /**
+ * @brief SLANG compilation profiles for different backends
+ */
+enum class SlangProfile {
+    GLSL_450,     ///< GLSL 4.50 profile for Vulkan
+    SM_6_0,       ///< Compute Capability 6.0 for CUDA (GTX 1060+, broadly compatible)
+    SM_7_5,       ///< Compute Capability 7.5 for CUDA (GTX 1650+, RTX 20xx+) 
+    SM_8_9,       ///< Compute Capability 8.9 for CUDA (RTX 4060+)
+    HLSL_6_0,     ///< HLSL 6.0 for DirectX 12 (future)
+    DEFAULT       ///< Auto-select based on backend
+};
+
+/**
+ * @brief SLANG compilation targets
+ */
+enum class SlangTarget {
+    SPIRV,        ///< SPIR-V bytecode for Vulkan
+    PTX,          ///< PTX assembly for CUDA  
+    GLSL,         ///< GLSL source code
+    HLSL,         ///< HLSL source code (future)
+    AUTO          ///< Auto-select based on backend
+};
+
+/**
+ * @brief SLANG compilation modes
+ */
+enum class CompilationMode {
+    PRECOMPILED,  ///< Use pre-built kernels from build process
+    JIT           ///< Just-in-time compilation (future)
+};
+
+/**
  * @brief Configuration for individual kernel tests
  */
 struct TestConfiguration {
@@ -58,6 +89,11 @@ struct TestConfiguration {
     TestMode mode = TestMode::FUNCTIONAL;
     int iterations = 1;
     float timeout_seconds = 60.0f;
+    
+    // SLANG compilation parameters
+    SlangProfile slang_profile = SlangProfile::DEFAULT;
+    SlangTarget slang_target = SlangTarget::AUTO;
+    CompilationMode compilation_mode = CompilationMode::PRECOMPILED;
     
     // Input parameters
     TestSize size = TestSize::HD_1080P;
@@ -118,6 +154,104 @@ struct TestConfiguration {
             default: return "Unknown";
         }
     }
+    
+    /**
+     * @brief Get SLANG profile name as string
+     * 
+     * @return Profile name
+     */
+    std::string GetSlangProfileName() const {
+        switch (slang_profile) {
+            case SlangProfile::GLSL_450: return "glsl_450";
+            case SlangProfile::SM_7_5: return "sm_7_5";
+            case SlangProfile::SM_8_9: return "sm_8_9";
+            case SlangProfile::HLSL_6_0: return "hlsl_6_0";
+            case SlangProfile::DEFAULT: return GetDefaultSlangProfile();
+            default: return "unknown";
+        }
+    }
+    
+    /**
+     * @brief Get SLANG target name as string
+     * 
+     * @return Target name
+     */
+    std::string GetSlangTargetName() const {
+        switch (slang_target) {
+            case SlangTarget::SPIRV: return "spirv";
+            case SlangTarget::PTX: return "ptx";
+            case SlangTarget::GLSL: return "glsl";
+            case SlangTarget::HLSL: return "hlsl";
+            case SlangTarget::AUTO: return GetDefaultSlangTarget();
+            default: return "unknown";
+        }
+    }
+    
+    /**
+     * @brief Get compilation mode name as string
+     * 
+     * @return Compilation mode name
+     */
+    std::string GetCompilationModeName() const {
+        switch (compilation_mode) {
+            case CompilationMode::PRECOMPILED: return "precompiled";
+            case CompilationMode::JIT: return "jit";
+            default: return "unknown";
+        }
+    }
+    
+    /**
+     * @brief Get compiled kernel filename
+     * 
+     * @param kernel_name Base kernel name (e.g., "conv2d")
+     * @return Compiled kernel filename (e.g., "conv2d-vulkan-glsl_450-spirv.spv")
+     */
+    std::string GetCompiledKernelFilename(const std::string& kernel_name) const {
+        std::string backend_name;
+        switch (target_backend) {
+            case Backend::CUDA: backend_name = "cuda"; break;
+            case Backend::VULKAN: backend_name = "vulkan"; break;
+            case Backend::CPU: backend_name = "cpu"; break;
+            case Backend::DX12: backend_name = "dx12"; break;
+            default: backend_name = "unknown"; break;
+        }
+        
+        std::string profile = GetSlangProfileName();
+        std::string target = GetSlangTargetName();
+        std::string extension = (target == "spirv") ? "spv" : 
+                               (target == "ptx") ? "ptx" : target;
+        
+        return kernel_name + "-" + backend_name + "-" + profile + "-" + target + "." + extension;
+    }
+    
+private:
+    /**
+     * @brief Get default SLANG profile for current backend
+     */
+    std::string GetDefaultSlangProfile() const {
+        switch (target_backend) {
+            case Backend::VULKAN:
+            case Backend::CPU: return "glsl_450";
+            case Backend::CUDA: return "sm_7_5";
+            case Backend::DX12: return "hlsl_6_0";
+            default: return "glsl_450";
+        }
+    }
+    
+    /**
+     * @brief Get default SLANG target for current backend
+     */
+    std::string GetDefaultSlangTarget() const {
+        switch (target_backend) {
+            case Backend::VULKAN:
+            case Backend::CPU: return "spirv";
+            case Backend::CUDA: return "ptx";
+            case Backend::DX12: return "hlsl";
+            default: return "spirv";
+        }
+    }
+    
+public:
     
     /**
      * @brief Get test mode name as string
