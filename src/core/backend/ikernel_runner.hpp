@@ -1,9 +1,9 @@
 #pragma once
 
-#include "common/kernel_result.hpp"
-#include "common/test_params.hpp"
-#include "common/data_span.hpp"
-#include "common/error_handling.hpp"
+#include "../common/kernel_result.hpp"
+#include "../common/test_params.hpp"
+#include "../common/data_span.hpp"
+#include "../common/error_handling.hpp"
 
 #include <string>
 #include <vector>

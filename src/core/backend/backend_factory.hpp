@@ -2,7 +2,7 @@
 
 #include "ikernel_runner.hpp"
 #include "runtime_loader.hpp"
-#include "common/error_handling.hpp"
+#include "../common/error_handling.hpp"
 
 #include <memory>
 #include <vector>

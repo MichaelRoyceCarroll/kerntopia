@@ -1,5 +1,5 @@
 #include "runtime_loader.hpp"
-#include "common/logger.hpp"
+#include "../common/logger.hpp"
 
 #include <filesystem>
 #include <fstream>

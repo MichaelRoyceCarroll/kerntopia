@@ -1,7 +1,7 @@
 #pragma once
 
 #include "device_info.hpp"
-#include "common/error_handling.hpp"
+#include "../common/error_handling.hpp"
 #include <vector>
 #include <string>
 #include <map>
