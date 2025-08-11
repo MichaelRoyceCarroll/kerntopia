@@ -23,10 +23,29 @@ RuntimeLoader::RuntimeLoader() {
 }
 
 RuntimeLoader::~RuntimeLoader() {
-    // Unload all libraries
-    for (auto& [path, handle] : loaded_libraries_) {
-        UnloadLibrary(handle);
+    // Unload all libraries - safely handle iterator invalidation
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Copy handles to avoid iterator invalidation when UnloadLibrary modifies the maps
+    std::vector<LibraryHandle> handles_to_unload;
+    for (const auto& [path, handle] : loaded_libraries_) {
+        handles_to_unload.push_back(handle);
     }
+    
+    // Manually unload and clean up without going through UnloadLibrary 
+    // to avoid mutex deadlock and map modification during iteration
+    for (LibraryHandle handle : handles_to_unload) {
+#ifdef _WIN32
+        FreeLibrary(handle);
+#else
+        dlclose(handle);
+#endif
+    }
+    
+    // Clear the maps
+    loaded_libraries_.clear();
+    handle_to_path_.clear();
+    
     LOG_SYSTEM_DEBUG("RuntimeLoader destroyed");
 }
 
