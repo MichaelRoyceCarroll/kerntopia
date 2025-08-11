@@ -1,5 +1,7 @@
 #include "backend_factory.hpp"
 #include "../common/logger.hpp"
+#include "cuda_runner.hpp"
+#include "vulkan_runner.hpp"
 
 #include <algorithm>
 
@@ -309,15 +311,27 @@ Result<std::shared_ptr<IKernelRunnerFactory>> BackendFactory::GetFactoryImpl(Bac
     return factory_result;
 }
 
-// Placeholder factory creation methods
+// Factory creation methods
 Result<std::shared_ptr<IKernelRunnerFactory>> BackendFactory::CreateCudaFactory() {
-    return KERNTOPIA_RESULT_ERROR(std::shared_ptr<IKernelRunnerFactory>, ErrorCategory::BACKEND,
-                                 ErrorCode::BACKEND_NOT_AVAILABLE, "CUDA factory not implemented yet");
+    auto factory = std::make_shared<CudaKernelRunnerFactory>();
+    if (!factory->IsAvailable()) {
+        return KERNTOPIA_RESULT_ERROR(std::shared_ptr<IKernelRunnerFactory>, ErrorCategory::BACKEND,
+                                     ErrorCode::BACKEND_NOT_AVAILABLE, "CUDA backend not available on this system");
+    }
+    
+    LOG_BACKEND_INFO("Created CUDA backend factory");
+    return KERNTOPIA_SUCCESS(std::static_pointer_cast<IKernelRunnerFactory>(factory));
 }
 
 Result<std::shared_ptr<IKernelRunnerFactory>> BackendFactory::CreateVulkanFactory() {
-    return KERNTOPIA_RESULT_ERROR(std::shared_ptr<IKernelRunnerFactory>, ErrorCategory::BACKEND,
-                                 ErrorCode::BACKEND_NOT_AVAILABLE, "Vulkan factory not implemented yet");
+    auto factory = std::make_shared<VulkanKernelRunnerFactory>();
+    if (!factory->IsAvailable()) {
+        return KERNTOPIA_RESULT_ERROR(std::shared_ptr<IKernelRunnerFactory>, ErrorCategory::BACKEND,
+                                     ErrorCode::BACKEND_NOT_AVAILABLE, "Vulkan backend not available on this system");
+    }
+    
+    LOG_BACKEND_INFO("Created Vulkan backend factory");
+    return KERNTOPIA_SUCCESS(std::static_pointer_cast<IKernelRunnerFactory>(factory));
 }
 
 Result<std::shared_ptr<IKernelRunnerFactory>> BackendFactory::CreateCpuFactory() {
