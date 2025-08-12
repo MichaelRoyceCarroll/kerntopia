@@ -3,6 +3,7 @@
 #include "ikernel_runner.hpp"
 #include "runtime_loader.hpp"
 #include "../common/error_handling.hpp"
+#include "../system/system_interrogator.hpp"
 
 #include <memory>
 #include <vector>
@@ -29,6 +30,30 @@ struct BackendInfo {
     std::string checksum;                       ///< Library file checksum
     uint64_t file_size = 0;                     ///< Library file size
     std::string last_modified;                  ///< File modification timestamp
+};
+
+/**
+ * @brief SLANG compiler availability information
+ */
+struct SlangCompilerInfo {
+    bool available = false;                     ///< SLANG compiler available on this system
+    std::string version;                        ///< SLANG compiler version
+    std::string slangc_path;                    ///< Path to slangc executable
+    std::string library_path;                   ///< Path to SLANG runtime library
+    std::vector<std::string> library_paths;     ///< All detected SLANG library paths
+    std::string error_message;                  ///< Error if not available
+    
+    // Runtime information
+    uint64_t slangc_file_size = 0;              ///< slangc file size
+    uint64_t library_file_size = 0;             ///< Library file size
+    std::string slangc_last_modified;           ///< slangc modification timestamp
+    std::string library_last_modified;         ///< Library modification timestamp
+    std::string slangc_checksum;                ///< slangc file checksum
+    std::string library_checksum;               ///< Library file checksum
+    
+    // Capabilities
+    std::vector<std::string> supported_targets; ///< Supported compilation targets
+    std::vector<std::string> supported_profiles; ///< Supported shader profiles
 };
 
 /**
@@ -158,6 +183,25 @@ public:
      * @return Validation result with details
      */
     static Result<void> ValidateBackend(Backend backend);
+    
+    /**
+     * @brief Get SLANG compiler information
+     * 
+     * Detects and reports SLANG compiler availability and capabilities.
+     * 
+     * @return SLANG compiler information
+     */
+    static SlangCompilerInfo GetSlangCompilerInfo();
+    
+    /**
+     * @brief Get complete system interrogation results
+     * 
+     * Returns unified system information from SystemInterrogator.
+     * This is the preferred method for new code.
+     * 
+     * @return Complete system information
+     */
+    static Result<SystemInfo> GetSystemInterrogation();
 
 public:
     ~BackendFactory() = default;
@@ -174,7 +218,14 @@ private:
     Result<void> InitializeImpl();
     void ShutdownImpl();
     Result<void> DetectBackends();
+    Result<void> DetectBackendsLegacy();  // Fallback detection method
     Result<BackendInfo> DetectBackend(Backend backend);
+    
+    // SLANG compiler detection  
+    SlangCompilerInfo DetectSlangCompiler();
+    
+    // Conversion utilities between SystemInterrogator and BackendFactory formats
+    static BackendInfo ConvertRuntimeToBackend(const RuntimeInfo& runtime_info, Backend backend_type);
     
     // Backend-specific detection methods
     Result<BackendInfo> DetectCudaBackend();

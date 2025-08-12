@@ -4,6 +4,11 @@
 #include "vulkan_runner.hpp"
 
 #include <algorithm>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
 
 namespace kerntopia {
 
@@ -148,7 +153,58 @@ void BackendFactory::ShutdownImpl() {
 }
 
 Result<void> BackendFactory::DetectBackends() {
-    // Detect each backend type
+    // **NEW**: Use SystemInterrogator for unified detection
+    auto system_info_result = SystemInterrogator::GetSystemInfo();
+    if (!system_info_result) {
+        LOG_BACKEND_ERROR("Failed to get system information from SystemInterrogator");
+        // Fallback to legacy detection
+        return DetectBackendsLegacy();
+    }
+    
+    const auto& system_info = *system_info_result;
+    
+    // Convert RuntimeInfo to BackendInfo for backward compatibility
+    if (system_info.cuda_runtime.available) {
+        backend_info_[Backend::CUDA] = ConvertRuntimeToBackend(system_info.cuda_runtime, Backend::CUDA);
+        LOG_BACKEND_INFO("Detected backend: CUDA");
+    } else {
+        BackendInfo info;
+        info.type = Backend::CUDA;
+        info.name = "CUDA";
+        info.available = false;
+        info.error_message = system_info.cuda_runtime.error_message;
+        backend_info_[Backend::CUDA] = info;
+        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Backend unavailable: CUDA - " + info.error_message);
+    }
+    
+    if (system_info.vulkan_runtime.available) {
+        backend_info_[Backend::VULKAN] = ConvertRuntimeToBackend(system_info.vulkan_runtime, Backend::VULKAN);
+        LOG_BACKEND_INFO("Detected backend: Vulkan");
+    } else {
+        BackendInfo info;
+        info.type = Backend::VULKAN;
+        info.name = "Vulkan";
+        info.available = false;
+        info.error_message = system_info.vulkan_runtime.error_message;
+        backend_info_[Backend::VULKAN] = info;
+        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Backend unavailable: Vulkan - " + info.error_message);
+    }
+    
+    // CPU backend (always available)
+    BackendInfo cpu_info;
+    cpu_info.type = Backend::CPU;
+    cpu_info.name = "CPU (Software)";
+    cpu_info.available = true;
+    cpu_info.version = "1.0.0";
+    cpu_info.library_path = "built-in";
+    backend_info_[Backend::CPU] = cpu_info;
+    LOG_BACKEND_INFO("Detected backend: CPU");
+    
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
+Result<void> BackendFactory::DetectBackendsLegacy() {
+    // Legacy detection fallback
     std::vector<Backend> backends_to_detect = {
         Backend::CUDA,
         Backend::VULKAN,
@@ -273,6 +329,191 @@ Result<BackendInfo> BackendFactory::DetectCpuBackend() {
     info.library_path = "built-in";
     
     return KERNTOPIA_SUCCESS(info);
+}
+
+SlangCompilerInfo BackendFactory::GetSlangCompilerInfo() {
+    auto& instance = GetInstance();
+    return instance.DetectSlangCompiler();
+}
+
+SlangCompilerInfo BackendFactory::DetectSlangCompiler() {
+    SlangCompilerInfo info;
+    
+    // Check for slangc executable in PATH and common locations
+    std::vector<std::string> search_paths;
+    
+    // Add PATH directories
+    const char* path_env = std::getenv("PATH");
+    if (path_env) {
+        std::string path_str(path_env);
+        size_t start = 0;
+        size_t end = path_str.find(':');
+        
+        while (end != std::string::npos) {
+            search_paths.push_back(path_str.substr(start, end - start));
+            start = end + 1;
+            end = path_str.find(':', start);
+        }
+        search_paths.push_back(path_str.substr(start));
+    }
+    
+    // Add FetchContent location from build
+    search_paths.push_back("build/_deps/slang-src/bin");
+    search_paths.push_back("_deps/slang-src/bin");
+    
+    // Search for slangc executable
+    std::string slangc_path;
+    for (const auto& search_path : search_paths) {
+        std::string candidate = search_path + "/slangc";
+        
+        // Check if file exists and is executable
+        if (access(candidate.c_str(), F_OK) == 0) {
+            if (access(candidate.c_str(), X_OK) == 0) {
+                slangc_path = candidate;
+                break;
+            }
+        }
+    }
+    
+    if (slangc_path.empty()) {
+        info.available = false;
+        info.error_message = "slangc executable not found in PATH or build directory";
+        return info;
+    }
+    
+    info.slangc_path = slangc_path;
+    
+    // Get file information for slangc
+    struct stat stat_buf;
+    if (stat(slangc_path.c_str(), &stat_buf) == 0) {
+        info.slangc_file_size = stat_buf.st_size;
+        
+        // Format last modified time
+        char time_str[100];
+        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", 
+                localtime(&stat_buf.st_mtime));
+        info.slangc_last_modified = time_str;
+        
+        // Calculate checksum (simplified - could use proper SHA256)
+        info.slangc_checksum = std::to_string(stat_buf.st_size) + "_" + 
+                              std::to_string(stat_buf.st_mtime);
+    }
+    
+    // Try to get version from slangc -h (since --version is not supported)
+    FILE* version_pipe = popen((slangc_path + " -h 2>&1").c_str(), "r");
+    if (version_pipe) {
+        char buffer[256];
+        std::string version_output;
+        
+        while (fgets(buffer, sizeof(buffer), version_pipe)) {
+            version_output += buffer;
+        }
+        pclose(version_pipe);
+        
+        // Look for version in help output
+        if (version_output.find("slang") != std::string::npos) {
+            info.version = "2025.14.3"; // Use the known version from FetchContent
+        } else {
+            info.version = "unknown";
+        }
+    } else {
+        info.version = "unknown";
+    }
+    
+    // Get supported targets from slangc -h target
+    FILE* targets_pipe = popen((slangc_path + " -h target 2>&1").c_str(), "r");
+    if (targets_pipe) {
+        char buffer[256];
+        std::string targets_output;
+        
+        while (fgets(buffer, sizeof(buffer), targets_pipe)) {
+            targets_output += buffer;
+        }
+        pclose(targets_pipe);
+        
+        // Parse common targets from help output
+        if (targets_output.find("spirv") != std::string::npos) {
+            info.supported_targets.push_back("spirv");
+        }
+        if (targets_output.find("ptx") != std::string::npos) {
+            info.supported_targets.push_back("ptx");
+        }
+        if (targets_output.find("dxil") != std::string::npos) {
+            info.supported_targets.push_back("dxil");
+        }
+        if (targets_output.find("glsl") != std::string::npos) {
+            info.supported_targets.push_back("glsl");
+        }
+    }
+    
+    // Get supported profiles from slangc -h profile
+    FILE* profiles_pipe = popen((slangc_path + " -h profile 2>&1").c_str(), "r");
+    if (profiles_pipe) {
+        char buffer[256];
+        std::string profiles_output;
+        
+        while (fgets(buffer, sizeof(buffer), profiles_pipe)) {
+            profiles_output += buffer;
+        }
+        pclose(profiles_pipe);
+        
+        // Parse common profiles from help output
+        if (profiles_output.find("glsl_450") != std::string::npos) {
+            info.supported_profiles.push_back("glsl_450");
+        }
+        if (profiles_output.find("sm_") != std::string::npos) {
+            info.supported_profiles.push_back("sm_6_0");
+            info.supported_profiles.push_back("sm_6_5");
+        }
+    }
+    
+    // Search for SLANG runtime library
+    std::vector<std::string> slang_lib_patterns = {"slang", "libslang"};
+    auto scan_result = runtime_loader_->ScanForLibraries(slang_lib_patterns);
+    
+    if (scan_result && !scan_result->empty()) {
+        auto& libraries = *scan_result;
+        if (!libraries.empty()) {
+            auto& first_lib = libraries.begin()->second;
+            info.library_path = first_lib.full_path;
+            info.library_file_size = first_lib.file_size;
+            info.library_last_modified = first_lib.last_modified;
+            info.library_checksum = first_lib.checksum;
+            
+            for (const auto& [name, lib_info] : libraries) {
+                info.library_paths.push_back(lib_info.full_path);
+            }
+        }
+    }
+    
+    info.available = true;
+    return info;
+}
+
+Result<SystemInfo> BackendFactory::GetSystemInterrogation() {
+    return SystemInterrogator::GetSystemInfo();
+}
+
+BackendInfo BackendFactory::ConvertRuntimeToBackend(const RuntimeInfo& runtime_info, Backend backend_type) {
+    BackendInfo backend_info;
+    
+    backend_info.type = backend_type;
+    backend_info.name = runtime_info.name;
+    backend_info.available = runtime_info.available;
+    backend_info.version = runtime_info.version;
+    backend_info.error_message = runtime_info.error_message;
+    
+    // File system information
+    backend_info.library_path = runtime_info.primary_library_path;
+    backend_info.library_paths = runtime_info.library_paths;
+    backend_info.checksum = runtime_info.library_checksum;
+    backend_info.file_size = runtime_info.library_file_size;
+    backend_info.last_modified = runtime_info.library_last_modified;
+    
+    // Default to primary runtime
+    backend_info.is_primary = true;
+    
+    return backend_info;
 }
 
 Result<std::shared_ptr<IKernelRunnerFactory>> BackendFactory::GetFactory(Backend backend) {

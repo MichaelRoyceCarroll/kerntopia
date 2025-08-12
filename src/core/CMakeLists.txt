@@ -20,6 +20,8 @@ set(CORE_SOURCES
     # System interrogation
     system/interrogator.cpp
     system/device_info.cpp
+    system/system_interrogator.cpp
+    system/system_info_service.cpp
 )
 
 set(CORE_HEADERS
@@ -44,6 +46,9 @@ set(CORE_HEADERS
     # System interrogation
     system/interrogator.hpp
     system/device_info.hpp
+    system/system_interrogator.hpp
+    system/interrogation_data.hpp
+    system/system_info_service.hpp
 )
 
 # Create core library

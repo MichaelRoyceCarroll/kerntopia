@@ -1,6 +1,6 @@
 #include "core/common/logger.hpp"
 #include "core/common/error_handling.hpp"
-#include "core/backend/backend_factory.hpp"
+#include "core/system/system_info_service.hpp"
 
 #include <iostream>
 #include <vector>
@@ -44,74 +44,7 @@ void PrintUsage() {
  * @brief Show system information including available backends and devices
  */
 void ShowSystemInfo(bool verbose) {
-    std::cout << "System Information\n";
-    std::cout << "==================\n\n";
-    
-    // Initialize backend factory
-    auto init_result = BackendFactory::Initialize();
-    if (!init_result) {
-        std::cerr << "Error: Failed to initialize backend system\n";
-        return;
-    }
-    
-    // Get available backends
-    auto backends = BackendFactory::GetAvailableBackends();
-    auto backend_info_map = BackendFactory::GetBackendInfo();
-    
-    std::cout << "Available Backends: " << backends.size() << "\n";
-    for (Backend backend : backends) {
-        auto info_it = backend_info_map.find(backend);
-        if (info_it != backend_info_map.end()) {
-            const auto& info = info_it->second;
-            std::cout << "  • " << info.name;
-            if (!info.version.empty()) {
-                std::cout << " (v" << info.version << ")";
-            }
-            std::cout << "\n";
-            
-            if (verbose) {
-                std::cout << "    Library: " << info.library_path << "\n";
-                if (!info.checksum.empty()) {
-                    std::cout << "    Checksum: " << info.checksum.substr(0, 16) << "...\n";
-                }
-                std::cout << "    File Size: " << info.file_size << " bytes\n";
-                if (!info.last_modified.empty()) {
-                    std::cout << "    Modified: " << info.last_modified << "\n";
-                }
-                
-                // Show devices for this backend
-                auto devices_result = BackendFactory::GetDevices(backend);
-                if (devices_result) {
-                    const auto& devices = *devices_result;
-                    std::cout << "    Devices: " << devices.size() << "\n";
-                    for (size_t i = 0; i < devices.size(); ++i) {
-                        const auto& device = devices[i];
-                        std::cout << "      [" << i << "] " << device.name;
-                        if (device.total_memory_bytes > 0) {
-                            double memory_gb = static_cast<double>(device.total_memory_bytes) / (1024.0 * 1024.0 * 1024.0);
-                            std::cout << " (" << std::fixed << std::setprecision(1) << memory_gb << " GB)";
-                        }
-                        std::cout << "\n";
-                    }
-                }
-                std::cout << "\n";
-            }
-        }
-    }
-    
-    // Show unavailable backends
-    if (verbose) {
-        std::cout << "\nUnavailable Backends:\n";
-        for (const auto& [backend, info] : backend_info_map) {
-            if (!info.available) {
-                std::cout << "  • " << info.name << " - " << info.error_message << "\n";
-            }
-        }
-    }
-    
-    std::cout << "\nFor detailed backend information, use: kerntopia info --verbose\n";
-    
-    BackendFactory::Shutdown();
+    SystemInfoService::ShowSystemInfo(verbose);
 }
 
 /**
