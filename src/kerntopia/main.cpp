@@ -12,13 +12,8 @@
 
 using namespace kerntopia;
 
-// Force link test libraries (ensures static test registration happens)
-extern "C" void force_conv2d_test_link();
-
-static void force_test_linking() {
-    // Call functions from test libraries to force linker inclusion
-    force_conv2d_test_link();
-}
+// Test libraries are explicitly linked via CMakeLists.txt
+// No forced linking needed - GTest static registration works automatically
 
 /**
  * @brief Print application banner and version information
@@ -141,30 +136,27 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
         }
     }
     
-    // Set up GTest environment variables based on configuration
-    std::string backend_filter = "";
+    // Apply backend filtering to test names based on actual GTest naming
+    std::string backend_suffix = "";
     switch (config.target_backend) {
         case Backend::CUDA:
-            backend_filter = "*CUDA*";
+            backend_suffix = "/CUDA";
             break;
         case Backend::VULKAN:
-            backend_filter = "*Vulkan*";
+            backend_suffix = "/Vulkan";
             break;
         case Backend::CPU:
-            backend_filter = "*CPU*";
+            backend_suffix = "/CPU";
             break;
-        default:
-            backend_filter = "*";
+        case Backend::DX12:
+            backend_suffix = "/DX12";
             break;
     }
     
-    // Combine test and backend filters using proper GTest syntax
-    if (gtest_filter != "*" && backend_filter != "*") {
-        // Use proper GTest filter syntax: TestSuite.TestName 
-        // For parameterized tests: TestSuite/TestInstance.TestName/BackendName
-        gtest_filter = gtest_filter + ".*" + backend_filter.substr(1, backend_filter.length()-2) + "*";
-    } else if (backend_filter != "*") {
-        gtest_filter = backend_filter;
+    if (!backend_suffix.empty()) {
+        // Apply backend filtering based on actual test naming patterns
+        // Parameterized tests end with /BackendName
+        gtest_filter = "*" + backend_suffix;
     }
     
     std::cout << "Running tests with filter: " << gtest_filter << "\n";
@@ -180,17 +172,13 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
     }
     std::cout << "\n";
     
-    // Initialize GTest - add list tests option if verbose
-    int gtest_argc = verbose ? 4 : 3;
+    // Initialize GTest with proper filter
+    std::string gtest_filter_arg = "--gtest_filter=" + gtest_filter;
+    int gtest_argc = 2;
     std::vector<const char*> gtest_argv_vec = {
         "kerntopia",
-        "--gtest_filter",
-        gtest_filter.c_str()
+        gtest_filter_arg.c_str()
     };
-    
-    if (verbose) {
-        gtest_argv_vec.push_back("--gtest_list_tests");
-    }
     
     const char** gtest_argv = gtest_argv_vec.data();
     
@@ -214,7 +202,7 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
         std::cout << "Try running 'kerntopia run all' or check available tests with '--gtest_list_tests'\n";
         return false;
     } else if (result == 0) {
-        std::cout << "\n✅ All " << total_tests << " tests passed!\n";
+        std::cout << "\n✅ All " << successful_tests << " tests passed!\n";
         return true;
     } else {
         std::cout << "\n❌ " << failed_tests << " of " << total_tests << " tests failed.\n";
@@ -227,9 +215,6 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
  */
 int main(int argc, char* argv[]) {
     PrintBanner();
-    
-    // Force test linking to ensure static test registration
-    force_test_linking();
     
     if (argc < 2) {
         PrintUsage();

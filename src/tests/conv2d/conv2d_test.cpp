@@ -2,11 +2,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-// Force symbol to be included in library
-extern "C" void force_conv2d_test_link() {
-    // This function forces the linker to include this object file
-    // It must be called from main to ensure static test registration happens
-}
+// Static library test registration works via -Wl,--whole-archive linker flag
 
 namespace kerntopia {
 

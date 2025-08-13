@@ -22,7 +22,9 @@ target_link_libraries(kerntopia
     PRIVATE
         kerntopia_core
         kerntopia_test_common  # Test framework
-        kerntopia_conv2d_test  # Conv2D test library (explicit)
+        -Wl,--whole-archive
+        kerntopia_conv2d_test  # Conv2D test library (explicit) - force whole archive
+        -Wl,--no-whole-archive
         gtest
         gtest_main
         Threads::Threads
