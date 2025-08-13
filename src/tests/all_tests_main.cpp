@@ -14,7 +14,6 @@ int main(int argc, char **argv) {
     kerntopia::Logger::Initialize(log_config);
     
     std::cout << "Kerntopia Test Suite v0.1.0\n";
-    std::cout << "Test implementations will be added in Phase 3\n\n";
     
     ::testing::InitGoogleTest(&argc, argv);
     int result = RUN_ALL_TESTS();

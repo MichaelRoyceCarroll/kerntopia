@@ -39,24 +39,10 @@ add_subdirectory(bilateral)
 add_subdirectory(reduction)
 add_subdirectory(transpose)
 
-# Create a test runner that includes all tests
-add_executable(kerntopia_all_tests
-    all_tests_main.cpp
-)
-
-target_link_libraries(kerntopia_all_tests
-    PRIVATE
-        kerntopia_test_common
-        # Individual test libraries will be added by subdirectories
-)
-
-# Output directory
-set_target_properties(kerntopia_all_tests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
+# Note: Tests are now linked directly into the main kerntopia executable
+# No separate test executable needed
 
 # Installation
-install(TARGETS kerntopia_test_common kerntopia_all_tests
+install(TARGETS kerntopia_test_common
     ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
 )

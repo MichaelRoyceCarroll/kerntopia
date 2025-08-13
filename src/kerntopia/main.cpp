@@ -12,6 +12,14 @@
 
 using namespace kerntopia;
 
+// Force link test libraries (ensures static test registration happens)
+extern "C" void force_conv2d_test_link();
+
+static void force_test_linking() {
+    // Call functions from test libraries to force linker inclusion
+    force_conv2d_test_link();
+}
+
 /**
  * @brief Print application banner and version information
  */
@@ -78,7 +86,7 @@ void ListAvailable() {
  * @param config Test configuration from command line
  * @return True if all tests passed
  */
-bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfiguration& config) {
+bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfiguration& config, bool verbose = false) {
     std::cout << "Running Kerntopia tests with configuration:\n";
     std::cout << "  Backend: " << config.GetBackendName() << "\n";
     std::cout << "  Profile: " << config.GetSlangProfileName() << "\n";
@@ -150,22 +158,41 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
             break;
     }
     
-    // Combine test and backend filters
+    // Combine test and backend filters using proper GTest syntax
     if (gtest_filter != "*" && backend_filter != "*") {
-        gtest_filter = "(" + gtest_filter + "):(" + backend_filter + ")";
+        // Use proper GTest filter syntax: TestSuite.TestName 
+        // For parameterized tests: TestSuite/TestInstance.TestName/BackendName
+        gtest_filter = gtest_filter + ".*" + backend_filter.substr(1, backend_filter.length()-2) + "*";
     } else if (backend_filter != "*") {
         gtest_filter = backend_filter;
     }
     
-    std::cout << "Running tests with filter: " << gtest_filter << "\n\n";
+    std::cout << "Running tests with filter: " << gtest_filter << "\n";
     
-    // Initialize GTest
-    int gtest_argc = 3;
-    const char* gtest_argv[] = {
+    // Add debug output in verbose mode
+    if (verbose) {
+        std::cout << "Debug: Test names: ";
+        for (const auto& name : test_names) {
+            std::cout << name << " ";
+        }
+        std::cout << "\nDebug: Backend: " << config.GetBackendName() << "\n";
+        std::cout << "Debug: GTest filter constructed: " << gtest_filter << "\n";
+    }
+    std::cout << "\n";
+    
+    // Initialize GTest - add list tests option if verbose
+    int gtest_argc = verbose ? 4 : 3;
+    std::vector<const char*> gtest_argv_vec = {
         "kerntopia",
         "--gtest_filter",
         gtest_filter.c_str()
     };
+    
+    if (verbose) {
+        gtest_argv_vec.push_back("--gtest_list_tests");
+    }
+    
+    const char** gtest_argv = gtest_argv_vec.data();
     
     // Initialize GTest with our arguments
     ::testing::InitGoogleTest(&gtest_argc, const_cast<char**>(gtest_argv));
@@ -176,11 +203,21 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
     // Run tests
     int result = RUN_ALL_TESTS();
     
-    if (result == 0) {
-        std::cout << "\n✅ All tests passed!\n";
+    // Get test results to check if any tests actually ran
+    const auto& unit_test = *::testing::UnitTest::GetInstance();
+    int total_tests = unit_test.total_test_count();
+    int successful_tests = unit_test.successful_test_count();
+    int failed_tests = unit_test.failed_test_count();
+    
+    if (total_tests == 0) {
+        std::cout << "\n⚠️  No tests matched the filter: " << gtest_filter << "\n";
+        std::cout << "Try running 'kerntopia run all' or check available tests with '--gtest_list_tests'\n";
+        return false;
+    } else if (result == 0) {
+        std::cout << "\n✅ All " << total_tests << " tests passed!\n";
         return true;
     } else {
-        std::cout << "\n❌ Some tests failed.\n";
+        std::cout << "\n❌ " << failed_tests << " of " << total_tests << " tests failed.\n";
         return false;
     }
 }
@@ -190,6 +227,9 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
  */
 int main(int argc, char* argv[]) {
     PrintBanner();
+    
+    // Force test linking to ensure static test registration
+    force_test_linking();
     
     if (argc < 2) {
         PrintUsage();
@@ -249,7 +289,7 @@ int main(int argc, char* argv[]) {
             }
             
             // Run tests using basic GTest integration
-            auto result = RunTestsBasic(test_names, test_config);
+            auto result = RunTestsBasic(test_names, test_config, parser.IsVerbose());
             
             // Cleanup
             BackendFactory::Shutdown();

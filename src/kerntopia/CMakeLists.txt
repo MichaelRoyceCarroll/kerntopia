@@ -17,10 +17,12 @@ set(SUITE_HEADERS
 # Create main suite executable
 add_executable(kerntopia ${SUITE_SOURCES} ${SUITE_HEADERS})
 
-# Link dependencies
+# Link dependencies (including test libraries for embedded GTest execution)
 target_link_libraries(kerntopia
     PRIVATE
         kerntopia_core
+        kerntopia_test_common  # Test framework
+        kerntopia_conv2d_test  # Conv2D test library (explicit)
         gtest
         gtest_main
         Threads::Threads
