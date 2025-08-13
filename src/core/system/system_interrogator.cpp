@@ -89,49 +89,128 @@ RuntimeInfo SystemInterrogator::DetectCudaRuntime() {
     RuntimeInfo info;
     info.name = "CUDA";
     
-    // Search for CUDA runtime libraries using existing pattern
-    std::vector<std::string> cuda_patterns = {"cudart", "nvcuda"};
-    auto scan_result = runtime_loader_->ScanForLibraries(cuda_patterns);
+    // STEP 1: RuntimeLoader dynamic search FIRST (respects LD_LIBRARY_PATH, consistent with Vulkan)
+    // Target only CUDA driver library, exclude SDK development libraries
+    std::vector<std::string> cuda_driver_patterns = {"libcuda.so"};
+    auto scan_result = runtime_loader_->ScanForLibraries(cuda_driver_patterns);
     
-    if (!scan_result || scan_result->empty()) {
-        info.available = false;
-        info.error_message = "CUDA runtime libraries not found";
-        return info;
+    std::string found_driver_path;
+    LibraryInfo driver_info;
+    
+    if (scan_result && !scan_result->empty()) {
+        auto& libraries = *scan_result;
+        
+        // Should only find libcuda.so since we're specifically searching for it
+        if (!libraries.empty()) {
+            found_driver_path = libraries.begin()->second.full_path;
+            driver_info = libraries.begin()->second;
+            KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Found CUDA driver via RuntimeLoader: " + found_driver_path);
+        }
     }
     
-    // Process detected libraries
-    auto& libraries = *scan_result;
-    auto cudart_it = std::find_if(libraries.begin(), libraries.end(),
-        [](const auto& pair) { return pair.first.find("cudart") != std::string::npos; });
-    
-    if (cudart_it != libraries.end()) {
-        info.available = true;
-        info.primary_library_path = cudart_it->second.full_path;
-        info.version = cudart_it->second.version;
-        info.library_checksum = cudart_it->second.checksum;
-        info.library_file_size = cudart_it->second.file_size;
-        info.library_last_modified = cudart_it->second.last_modified;
+    // STEP 2: Hardcoded fallback paths SECOND (WSL + standard locations)
+    if (found_driver_path.empty()) {
+        std::vector<std::string> fallback_paths = {
+            // WSL-specific driver paths (Windows Subsystem for Linux)
+            "/usr/lib/wsl/lib/libcuda.so.1",
+            "/usr/lib/wsl/lib/libcuda.so",
+            "/usr/lib/wsl/drivers/nvlti.inf_amd64_ebc0400e7490ee31/libcuda.so.1.1",
+            
+            // Standard Linux driver installation paths
+            "/usr/lib/x86_64-linux-gnu/libcuda.so.1",
+            "/usr/lib/x86_64-linux-gnu/libcuda.so",
+            "/usr/lib64/libcuda.so.1", 
+            "/usr/lib64/libcuda.so",
+            "/usr/lib/libcuda.so.1",
+            "/usr/lib/libcuda.so",
+            "/usr/local/cuda/lib64/libcuda.so.1",
+            "/usr/local/cuda/lib64/libcuda.so"
+        };
         
-        // Collect all library paths
-        for (const auto& [name, lib_info] : libraries) {
-            info.library_paths.push_back(lib_info.full_path);
+        for (const std::string& lib_path : fallback_paths) {
+            if (access(lib_path.c_str(), F_OK) == 0) {
+                found_driver_path = lib_path;
+                
+                // Collect file metadata
+                driver_info.full_path = lib_path;
+                driver_info.name = lib_path.substr(lib_path.find_last_of('/') + 1);
+                
+                struct stat stat_buf;
+                if (stat(lib_path.c_str(), &stat_buf) == 0) {
+                    driver_info.file_size = stat_buf.st_size;
+                    
+                    char time_str[100];
+                    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", 
+                            localtime(&stat_buf.st_mtime));
+                    driver_info.last_modified = time_str;
+                    
+                    driver_info.checksum = std::to_string(stat_buf.st_size) + "_" + 
+                                         std::to_string(stat_buf.st_mtime);
+                }
+                
+                KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Found CUDA driver via fallback path: " + lib_path);
+                break;
+            }
+        }
+    }
+    
+    // Also check for CUDA runtime (cudart) for additional context
+    std::vector<std::string> cudart_patterns = {"cudart"};
+    auto cudart_scan_result = runtime_loader_->ScanForLibraries(cudart_patterns);
+    std::string found_runtime_path;
+    
+    if (cudart_scan_result && !cudart_scan_result->empty()) {
+        auto& cudart_libraries = *cudart_scan_result;
+        if (!cudart_libraries.empty()) {
+            found_runtime_path = cudart_libraries.begin()->second.full_path;
+            KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Found CUDA runtime: " + found_runtime_path);
+        }
+    }
+    
+    // Determine availability based on what we found
+    if (!found_driver_path.empty()) {
+        info.available = true;
+        info.primary_library_path = found_driver_path;
+        info.library_file_size = driver_info.file_size;
+        info.library_checksum = driver_info.checksum;
+        info.library_last_modified = driver_info.last_modified;
+        
+        // Collect all CUDA library paths
+        info.library_paths.push_back(found_driver_path);
+        if (!found_runtime_path.empty()) {
+            info.library_paths.push_back(found_runtime_path);
         }
         
+        // Set version (simplified)
+        info.version = "CUDA Driver (Dynamic Detection)";
+        
         // Set CUDA capabilities
-        info.capabilities.jit_compilation = true;
+        info.capabilities.jit_compilation = true;  // Driver API supports PTX JIT
         info.capabilities.precompiled_kernels = true;
         info.capabilities.memory_management = true;
         info.capabilities.device_enumeration = true;
         info.capabilities.performance_counters = true;
         info.capabilities.supported_targets = {"ptx", "cubin"};
-        info.capabilities.supported_profiles = {"cuda_sm_6_0", "cuda_sm_7_0", "cuda_sm_7_5", "cuda_sm_8_0"};
+        info.capabilities.supported_profiles = {"cuda_sm_6_0", "cuda_sm_7_0", "cuda_sm_7_5", "cuda_sm_8_0", "cuda_sm_8_9"};
         info.capabilities.supported_stages = {"compute"};
         
-        // Enumerate devices
+        // Device enumeration is left as placeholder in SystemInterrogator
+        // Full device enumeration is handled by CUDA backend for proper separation
         info.devices = EnumerateCudaDevices(info);
+        
+        KERNTOPIA_LOG_INFO(LogComponent::SYSTEM, "CUDA driver library detected: " + found_driver_path);
+        
     } else {
         info.available = false;
-        info.error_message = "CUDA runtime not found in detected libraries";
+        info.error_message = "CUDA driver library (libcuda.so) not found via dynamic search or standard paths";
+        
+        // Provide helpful context if only runtime was found
+        if (!found_runtime_path.empty()) {
+            info.error_message += " (found runtime library at " + found_runtime_path + 
+                                 " but need driver library for PTX JIT)";
+        }
+        
+        KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "CUDA detection failed: " + info.error_message);
     }
     
     return info;
