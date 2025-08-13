@@ -1,101 +1,66 @@
 # Kerntopia Development Status
 
-**Date:** 2025-08-12 00:33 Pacific Time
+**Date:** 2025-08-12 18:20 Pacific Time
 
 ## Current Plan
 
-**PHASE 2 SLANG INTEGRATION SUCCESSFULLY COMPLETED!** Implemented comprehensive SLANG compiler integration with working kernel compilation for both Vulkan (SPIR-V) and CUDA (PTX) targets. Resolved critical CUDA profile syntax issues and achieved full educational auditability. The project is organized into 6 phases:
+**PHASE 3.3 BASEKERNEL TEST FRAMEWORK SUCCESSFULLY COMPLETED!** Implemented comprehensive GTest integration with statistical analysis, parameterized testing, and image testing infrastructure. Fixed critical CUDA detection to find actual driver library. The project is organized into 6 phases:
 
 1. **Phase 1: Core Infrastructure & Build System** (✅ **100% COMPLETE**)
-2. **Phase 2: SLANG Compilation & Kernel Management** (✅ **100% COMPLETE** - Enhanced with unified system interrogation and reusable display services)
-3. **Phase 3: MVP Kernel Implementation** (READY TO START) 
+2. **Phase 2: SLANG Compilation & Kernel Management** (✅ **100% COMPLETE**)
+3. **Phase 3: MVP Kernel Implementation** (⚠️ **PHASE 3.1-3.3 COMPLETE** - Backend implementation and test framework ready)
+   - ✅ Phase 3.1: CUDA Backend Implementation (PTX loading, memory management, timing)
+   - ✅ Phase 3.2: CUDA Detection Fix (WSL driver library discovery)
+   - ✅ Phase 3.3: BaseKernelTest Framework (GTest integration, statistical analysis)
+   - 🔄 Phase 3.4: JIT/precompiled command line modes
+   - 🔄 Phase 3.5: Conv2D test implementation  
+   - 🔄 Phase 3.6: KernelManager and TestOrchestrator integration
+   - 🔄 Phase 3.7: End-to-end testing validation
 4. **Phase 4: Execution Modes** (PENDING)
-5. **Phase 5: Python Orchestration Wrapper** (PENDING)
+5. **Phase 5: Python Orchestration Wrapper** (PENDING)  
 6. **Phase 6: Documentation & Polish** (PENDING)
 
-**Phase 2 FULLY COMPLETE with enhanced system interrogation architecture. Ready for Phase 3 kernel execution with proper JIT/precompiled mode handling.**
+**Test framework infrastructure complete. Ready for Phase 3.4 JIT/precompiled mode implementation and Phase 3.5 actual kernel test creation.**
 
 ## What's implemented/working
 
-- ✅ **SLANG FETCHCONTENT INTEGRATION** - Successfully downloads and configures SLANG v2025.14.3 (50MB) via CMake
-- ✅ **WORKING KERNEL COMPILATION** - All 4 test kernels compile successfully:
-  - `vector_add-vulkan-glsl_450-spirv.spv` (SPIR-V for Vulkan)
-  - `vector_add-cuda-cuda_sm_7_0-ptx.ptx` (PTX for CUDA)  
-  - `conv2d-vulkan-glsl_450-spirv.spv` (SPIR-V for Vulkan)
-  - `conv2d-cuda-cuda_sm_7_0-ptx.ptx` (PTX for CUDA)
-- ✅ **CUDA PROFILE SYNTAX RESOLUTION** - Fixed critical CUDA compilation issue:
-  - **Before**: Attempted `-profile sm_7_5` (DirectX Shader Model syntax) → FAILED
-  - **After**: Uses `-capability cuda_sm_7_0` (CUDA Compute Capability syntax) → SUCCESS
-- ✅ **PROFILE × TARGET MATRIX** - Extended TestConfiguration with SlangProfile/SlangTarget enums for backend selection
-- ✅ **ENHANCED COMMAND LINE PARSER** - Supports `--backend`, `--profile`, `--target` options with proper defaults
-- ✅ **EDUCATIONAL AUDITABILITY FEATURES**:
-  - Complete JSON metadata files with compilation timestamps, hashes, build environment
-  - `compile_commands.txt` for manual kernel reproduction
-  - Detailed SLANG command logging during build
-- ✅ **BUILD SYSTEM INTEGRATION** - CMake custom targets for individual kernel compilation with proper dependencies
-- ✅ **SAMPLE SLANG KERNELS** - Educational vector_add.slang and conv2d.slang with comprehensive comments
-- ✅ **KERNTOPIA EXECUTABLE WORKING** - `./kerntopia info --verbose` runs successfully with backend detection
-- ✅ **ENHANCED SLANG DETECTION** - SystemInterrogator correctly detects both slangc (build-time) and libslang.so (runtime JIT)
-- ✅ **JIT/PRECOMPILED MODE REPORTING** - Distinguishes between build-time tools and runtime JIT capabilities
-- ✅ **UNIFIED SYSTEM INTERROGATION** - SystemInterrogator provides consistent detection across CUDA, Vulkan, SLANG
-- ✅ **REUSABLE SYSTEM INFO SERVICE** - SystemInfoService abstracted for suite, standalone, and Python wrapper reuse
-- ✅ **DEVICEINFO INTEGRATION** - Proper device enumeration with complete type safety
-- ✅ **ACCURATE LIBRARY DETECTION** - Finds actual libslang.so (2.1MB) for JIT mode, not glslang substitutes
+- ✅ **COMPREHENSIVE TEST FRAMEWORK** - BaseKernelTest with GTest integration, parameterized testing, statistical analysis
+- ✅ **CUDA BACKEND FULLY FUNCTIONAL** - CudaKernelRunner with PTX loading, memory management, timing events
+- ✅ **FIXED CUDA DETECTION** - SystemInterrogator now finds actual CUDA driver (`/usr/lib/wsl/lib/libcuda.so.1`) instead of SDK dev libraries
+- ✅ **IMAGE TESTING INFRASTRUCTURE** - ImageData structure, ImageLoader framework, image comparison utilities ready for STB integration
+- ✅ **STATISTICAL ANALYSIS CAPABILITIES** - Performance testing with multiple iterations, coefficient of variation tracking, PSNR calculation
+- ✅ **PARAMETERIZED TEST SUPPORT** - `KERNTOPIA_TEST_ALL_BACKENDS` macro for automatic multi-backend testing
+- ✅ **PERFORMANCE TEST MACROS** - `KERNTOPIA_PERFORMANCE_TEST` with configurable iterations and consistency validation
+- ✅ **BACKEND AVAILABILITY CHECKING** - Integrated with SystemInterrogator for runtime backend validation
+- ✅ **WORKING KERNEL COMPILATION** - All SLANG kernels compile to SPIR-V/PTX successfully
+- ✅ **SLANG INTEGRATION COMPLETE** - Build-time and runtime JIT detection working
+- ✅ **UNIFIED SYSTEM INTERROGATION** - SystemInterrogator provides consistent detection across all runtimes
 
 ## What's in progress
 
-- Nothing - Phase 2 fully completed with all features working
+- Nothing - Phase 3.3 BaseKernelTest framework fully completed with all features working
 
 ## Immediate next tasks
 
-1. **Phase 3 Kernel Execution Framework** - Implement actual kernel loading and execution via IKernelRunner interface
-2. **JIT/Precompiled Mode Command Line** - Add `--jit`, `--precompiled` flags with proper validation and fallback logic
-3. **Execution Mode Validation** - Runtime checks for libslang.so availability when JIT mode requested
-4. **Graceful Mode Degradation** - `--jit --precompiled` fallback with informative warnings
-5. **Parameter Binding Implementation** - Connect SLANG-compiled kernels to GPU buffer/texture binding
-6. **Performance Measurement Framework** - Add timing and validation for executed kernels
-
-## Phase 3 Architecture Requirements
-
-### **Command Line Enhancement**
-```bash
-# JIT mode - requires libslang.so at runtime
-kerntopia run conv2d --backend cuda --mode performance --jit
-
-# Precompiled mode - uses build-time generated .spv/.ptx files  
-kerntopia run conv2d --backend cuda --mode performance --precompiled
-
-# Mixed mode - try JIT, fallback to precompiled with warning
-kerntopia run conv2d --backend cuda --mode performance --jit --precompiled
-
-# Default behavior - precompiled mode (safer)
-kerntopia run conv2d --backend cuda --mode performance
-```
-
-### **Execution Planning Logic**
-- **JIT Mode Validation**: Error immediately if `--jit` requested but libslang.so missing
-- **Build-time vs Runtime Distinction**: slangc detection valuable for audit trail but doesn't block execution
-- **Consistent Across Executables**: Same mode logic for both `kerntopia` suite and `kerntopia-conv2d` standalone
-- **Educational Reporting**: Report actual slangc version used at build-time for version disambiguation
+1. **Phase 3.4: JIT/Precompiled Command Line Modes** - Add `--jit`, `--precompiled` flags with validation and fallback logic
+2. **Phase 3.5: Conv2D Test Implementation** - Create working Conv2D test using BaseKernelTest framework with image loading and validation  
+3. **Phase 3.6: KernelManager Integration** - Connect KernelManager and TestOrchestrator for complete execution pipeline
+4. **Phase 3.7: End-to-End Testing** - Validate complete workflow across CUDA/Vulkan backends with real kernel execution
 
 ## Key decisions made
 
-- ✅ **SLANG SYNTAX RESOLUTION** - Discovered SLANG uses `-capability cuda_sm_X_Y` for CUDA, not `-profile sm_X_Y` (DirectX)
-- ✅ **EDUCATIONAL FOCUS MAINTAINED** - Complete audit trail with copy-paste reproduction commands for learning
-- ✅ **EXISTING TEST DIRECTORY REUSE** - Placed SLANG kernels in `src/tests/*/` instead of separate `/kernels` directory 
-- ✅ **CMAKE CUSTOM TARGET APPROACH** - Individual targets per kernel compilation for proper build dependency management
-- ✅ **SLANG v2025.14.3 PINNED** - Fixed version for reproducibility with override cache variable for advanced users
-- ✅ **BACKEND-SPECIFIC FLAG HANDLING** - Conditional logic for Vulkan (-profile) vs CUDA (-capability) compilation flags
-- ✅ **SYSTEM INTERROGATION ABSTRACTION** - Created reusable SystemInterrogator and SystemInfoService for multi-executable consistency
-- ✅ **BUILD-TIME VS RUNTIME DISTINCTION** - slangc reporting for educational audit trail, libslang.so detection for actual JIT capability
-- ✅ **DEFENSIVE TECHNICAL DEBT REDUCTION** - Unified detection patterns prevent scattered interrogation logic across codebase
+- ✅ **COMPREHENSIVE TEST ARCHITECTURE** - BaseKernelTest provides virtual ExecuteKernel() for derived classes, comprehensive statistical analysis
+- ✅ **IMAGE TESTING SCAFFOLDING** - ImageData/ImageLoader designed to play nice with STB/TinyEXR without future rewiring needs
+- ✅ **CUDA DRIVER DETECTION REFINEMENT** - Changed search patterns from generic `{"libcuda", "cuda", "nvcuda"}` to specific `{"libcuda.so"}` to avoid SDK dev libraries
+- ✅ **WSL-AWARE CUDA DETECTION** - Priority order: RuntimeLoader dynamic search FIRST, then WSL/standard fallback paths
+- ✅ **BACKENFACTORY STATIC PATTERN** - Test framework uses BackendFactory static methods rather than singleton instance management
+- ✅ **STATISTICAL PERFORMANCE VALIDATION** - Tests verify coefficient of variation <15% for performance consistency
+- ✅ **PARAMETERIZED MULTI-BACKEND TESTING** - Automatic testing across CUDA/Vulkan/CPU with proper skip logic for unavailable backends
 
 ## Any blockers encountered
 
-- **No blockers** - Phase 2 FULLY COMPLETE including SLANG detection and reporting
-- **CUDA syntax issue resolved** - SLANG capabilities documentation clarified proper CUDA compute capability usage
-- **All kernels compile successfully** - Both Vulkan SPIR-V and CUDA PTX targets working
-- **Build system stable** - CMake integration robust with proper target dependencies  
-- **SLANG integration architecturally complete** - Build-time compilation and runtime JIT detection working with proper distinction  
-- **Multi-executable foundation ready** - SystemInfoService enables consistent interrogation across suite, standalone, and Python wrapper modes
-- **Ready for Phase 3** - Execution framework ready with proper JIT/precompiled mode validation requirements captured
+- **No blockers** - Phase 3.3 test framework FULLY COMPLETE with comprehensive GTest integration
+- **CUDA detection issue resolved** - Now correctly finds NVIDIA GeForce RTX 4060 Laptop GPU via WSL driver library  
+- **Test compilation successful** - All BaseKernelTest framework components build and link correctly
+- **Image testing scaffolding validated** - ImageData/ImageLoader architecture confirmed compatible with future STB/TinyEXR integration
+- **Ready for Phase 3.4** - JIT/precompiled command line mode implementation can begin with solid test framework foundation
