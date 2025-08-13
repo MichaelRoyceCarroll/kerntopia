@@ -1,6 +1,8 @@
 #include "cuda_runner.hpp"
 #include "../common/logger.hpp"
 #include "runtime_loader.hpp"
+#include "../system/system_interrogator.hpp"
+#include "../system/interrogation_data.hpp"
 
 #include <sstream>
 #include <algorithm>
@@ -685,96 +687,32 @@ bool CudaKernelRunnerFactory::IsAvailable() const {
 }
 
 std::vector<DeviceInfo> CudaKernelRunnerFactory::EnumerateDevices() const {
-    std::vector<DeviceInfo> devices;
-    
-    // Initialize CUDA driver to enumerate devices with full properties
-    auto init_result = InitializeCudaDriver();
-    if (!init_result.HasValue()) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Cannot initialize CUDA driver for device enumeration: " + init_result.GetError().message);
-        return devices;
+    // Use SystemInterrogator to get the actual detected CUDA devices
+    // This avoids duplicating device detection logic
+    auto system_info_result = SystemInterrogator::GetSystemInfo();
+    if (!system_info_result.HasValue()) {
+        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "SystemInterrogator failed to get system info: " + 
+                             system_info_result.GetError().message);
+        return {};
     }
     
-    // Get device count using CUDA Driver API
-    int device_count = 0;
-    int cuda_result = cu_DeviceGetCount(&device_count);
-    if (cuda_result != CUDA_SUCCESS) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "cuDeviceGetCount failed: " + CudaKernelRunner::CudaErrorToString(cuda_result));
-        return devices;
+    auto system_info = system_info_result.GetValue();
+    
+    // Extract CUDA devices from system info
+    std::vector<DeviceInfo> devices = system_info.cuda_runtime.devices;
+    
+    if (devices.empty()) {
+        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "No CUDA devices found in system interrogation");
+        return {};
     }
     
-    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Found " + std::to_string(device_count) + " CUDA devices");
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Found " + std::to_string(devices.size()) + " CUDA devices via SystemInterrogator");
     
-    // Enumerate each device with full properties using CUDA Driver API
-    for (int device_id = 0; device_id < device_count; ++device_id) {
-        DeviceInfo info;
-        info.device_id = device_id;
-        info.backend_type = Backend::CUDA;
-        
-        // Get device name
-        char name[256] = {0};
-        cuda_result = cu_DeviceGetName(name, sizeof(name), device_id);
-        if (cuda_result == CUDA_SUCCESS) {
-            info.name = std::string(name);
-        } else {
-            info.name = "CUDA Device " + std::to_string(device_id) + " (query failed)";
-            KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Failed to get name for CUDA device " + std::to_string(device_id));
-        }
-        
-        // Get device attributes
-        int value;
-        
-        // Compute capability
-        int major = 0, minor = 0;
-        cu_DeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device_id);
-        cu_DeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device_id);
-        info.compute_capability = std::to_string(major) + "." + std::to_string(minor);
-        
-        // Thread and memory limits
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, device_id);
-        info.max_threads_per_group = static_cast<uint32_t>(value);
-        
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, device_id);
-        info.max_shared_memory_bytes = static_cast<uint32_t>(value);
-        
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device_id);
-        info.multiprocessor_count = static_cast<uint32_t>(value);
-        
-        // Clock rates
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_CLOCK_RATE, device_id);
-        info.base_clock_mhz = static_cast<uint32_t>(value / 1000);
-        
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device_id);
-        int memory_clock = value;
-        
-        cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device_id);
-        int bus_width = value;
-        
-        // Estimate memory bandwidth
-        info.memory_bandwidth_gbps = static_cast<float>(memory_clock * 2) * (bus_width / 8) / 1e6f;
-        
-        // Default memory size (actual size needs context)
-        info.total_memory_bytes = 8ULL * 1024 * 1024 * 1024;
-        info.free_memory_bytes = info.total_memory_bytes;
-        
-        info.is_integrated = false;
-        info.supports_compute = true;
-        info.supports_graphics = false;
-        
-        // API version based on compute capability
-        if (major >= 8) {
-            info.api_version = "CUDA 11.0+";
-        } else if (major >= 7) {
-            info.api_version = "CUDA 10.0+";
-        } else {
-            info.api_version = "CUDA 9.0+";
-        }
-        
-        devices.push_back(info);
-        
+    for (size_t i = 0; i < devices.size(); ++i) {
         KERNTOPIA_LOG_INFO(LogComponent::BACKEND, 
-            "CUDA Device " + std::to_string(device_id) + ": " + info.name + 
-            " (CC " + info.compute_capability + ", " + 
-            std::to_string(info.total_memory_bytes / (1024*1024)) + " MB)");
+            "CUDA Device " + std::to_string(i) + ": " + devices[i].name + 
+            " (CC " + devices[i].compute_capability + ", " + 
+            std::to_string(devices[i].total_memory_bytes / (1024*1024)) + " MB)");
     }
     
     return devices;

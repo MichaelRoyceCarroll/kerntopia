@@ -1,22 +1,94 @@
 #pragma once
 
 #include "ikernel_runner.hpp"
+#include <chrono>
+#include <map>
 
 namespace kerntopia {
 
+// Forward declarations for Vulkan types
+struct VulkanContext;
+struct VulkanDevice;
+struct VulkanComputePipeline;
+struct VulkanCommandPool;
+struct VulkanQueryPool;
+
+/**
+ * @brief Vulkan buffer implementation
+ */
+class VulkanBuffer : public IBuffer {
+public:
+    VulkanBuffer(VulkanDevice* device, size_t size, Type type, Usage usage);
+    ~VulkanBuffer();
+    
+    size_t GetSize() const override { return size_; }
+    Type GetType() const override { return type_; }
+    
+    void* Map() override;
+    void Unmap() override;
+    
+    Result<void> UploadData(const void* data, size_t size, size_t offset = 0) override;
+    Result<void> DownloadData(void* data, size_t size, size_t offset = 0) override;
+    
+    // Vulkan-specific methods
+    void* GetBuffer() const { return buffer_; }
+    void* GetDeviceMemory() const { return device_memory_; }
+    
+private:
+    VulkanDevice* device_;
+    size_t size_;
+    Type type_;
+    Usage usage_;
+    void* buffer_ = nullptr;
+    void* device_memory_ = nullptr;
+    void* mapped_ptr_ = nullptr;
+    bool is_mapped_ = false;
+    
+    bool CreateBuffer();
+    void DestroyBuffer();
+};
+
+/**
+ * @brief Vulkan texture implementation
+ */
+class VulkanTexture : public ITexture {
+public:
+    VulkanTexture(VulkanDevice* device, const TextureDesc& desc);
+    ~VulkanTexture();
+    
+    const TextureDesc& GetDesc() const override { return desc_; }
+    
+    Result<void> UploadData(const void* data, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
+    Result<void> DownloadData(void* data, size_t data_size, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
+    
+    // Vulkan-specific methods
+    void* GetImage() const { return image_; }
+    void* GetImageView() const { return image_view_; }
+    void* GetDeviceMemory() const { return device_memory_; }
+    
+private:
+    VulkanDevice* device_;
+    TextureDesc desc_;
+    void* image_ = nullptr;
+    void* image_view_ = nullptr;
+    void* device_memory_ = nullptr;
+    
+    bool CreateImage();
+    void DestroyImage();
+    uint32_t GetVulkanFormat() const;
+};
+
 /**
  * @brief Vulkan backend kernel runner implementation
- * 
- * Placeholder for Phase 1 Vulkan backend implementation
  */
 class VulkanKernelRunner : public IKernelRunner {
 public:
-    VulkanKernelRunner() = default;
-    ~VulkanKernelRunner() = default;
+    VulkanKernelRunner(const DeviceInfo& device_info);
+    ~VulkanKernelRunner();
     
-    // IKernelRunner interface implementation (placeholder)
+    // IKernelRunner interface implementation
     std::string GetBackendName() const override { return "Vulkan"; }
-    std::string GetDeviceName() const override { return "Vulkan Device (placeholder)"; }
+    std::string GetDeviceName() const override;
     DeviceInfo GetDeviceInfo() const override;
     
     Result<void> LoadKernel(const std::vector<uint8_t>& bytecode, const std::string& entry_point) override;
@@ -34,7 +106,26 @@ public:
     bool SupportsFeature(const std::string& feature) const override;
 
 private:
-    // Placeholder implementation
+    std::unique_ptr<VulkanContext> context_;
+    std::unique_ptr<VulkanDevice> device_;
+    std::unique_ptr<VulkanComputePipeline> pipeline_;
+    std::unique_ptr<VulkanCommandPool> command_pool_;
+    std::unique_ptr<VulkanQueryPool> query_pool_;
+    
+    // Resource bindings
+    std::map<int, std::shared_ptr<IBuffer>> bound_buffers_;
+    std::map<int, std::shared_ptr<ITexture>> bound_textures_;
+    std::vector<uint8_t> parameter_data_;
+    
+    // Timing
+    std::chrono::high_resolution_clock::time_point dispatch_start_;
+    std::chrono::high_resolution_clock::time_point dispatch_end_;
+    TimingResults last_timing_;
+    
+    bool InitializeVulkan(const DeviceInfo& device_info);
+    void ShutdownVulkan();
+    Result<void> CreateDescriptorSets();
+    Result<void> UpdateDescriptorSets();
 };
 
 /**

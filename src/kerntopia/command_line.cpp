@@ -85,6 +85,12 @@ bool CommandLineParser::ParseOptions(int argc, char* argv[]) {
             }
             if (!ParseMode(argv[++i])) return false;
         }
+        else if (arg == "--jit") {
+            test_config_.compilation_mode = CompilationMode::JIT;
+        }
+        else if (arg == "--precompiled") {
+            test_config_.compilation_mode = CompilationMode::PRECOMPILED;
+        }
         else if (arg == "--verbose" || arg == "-v") {
             verbose_ = true;
         }
@@ -118,14 +124,16 @@ bool CommandLineParser::ParseBackend(const std::string& backend_str) {
 bool CommandLineParser::ParseProfile(const std::string& profile_str) {
     if (profile_str == "glsl_450") {
         test_config_.slang_profile = SlangProfile::GLSL_450;
-    } else if (profile_str == "sm_7_5") {
-        test_config_.slang_profile = SlangProfile::SM_7_5;
-    } else if (profile_str == "sm_8_9") {
-        test_config_.slang_profile = SlangProfile::SM_8_9;
+    } else if (profile_str == "cuda_sm_6_0") {
+        test_config_.slang_profile = SlangProfile::CUDA_SM_6_0;
+    } else if (profile_str == "cuda_sm_7_0") {
+        test_config_.slang_profile = SlangProfile::CUDA_SM_7_0;
+    } else if (profile_str == "cuda_sm_8_0") {
+        test_config_.slang_profile = SlangProfile::CUDA_SM_8_0;
     } else if (profile_str == "hlsl_6_0") {
         test_config_.slang_profile = SlangProfile::HLSL_6_0;
     } else {
-        std::cerr << "Error: Unknown profile '" << profile_str << "'. Valid options: glsl_450, sm_7_5, sm_8_9, hlsl_6_0\n";
+        std::cerr << "Error: Unknown profile '" << profile_str << "'. Valid options: glsl_450, cuda_sm_6_0, cuda_sm_7_0, cuda_sm_8_0, hlsl_6_0\n";
         return false;
     }
     return true;
@@ -168,7 +176,7 @@ void CommandLineParser::SetDefaultProfileTarget() {
                 test_config_.slang_profile = SlangProfile::GLSL_450;
                 break;
             case Backend::CUDA:
-                test_config_.slang_profile = SlangProfile::SM_7_5;
+                test_config_.slang_profile = SlangProfile::CUDA_SM_7_0;
                 break;
             case Backend::DX12:
                 test_config_.slang_profile = SlangProfile::HLSL_6_0;
@@ -201,14 +209,17 @@ std::string CommandLineParser::GetHelpText() const {
     ss << "  kerntopia run all [options]                          Run all kernels\n\n";
     ss << "Options:\n";
     ss << "  --backend, -b <backend>     GPU backend (cuda, vulkan, cpu, dx12)\n";
-    ss << "  --profile, -p <profile>     SLANG profile (glsl_450, sm_7_5, sm_8_9, hlsl_6_0)\n";
+    ss << "  --profile, -p <profile>     SLANG profile (glsl_450, cuda_sm_6_0, cuda_sm_7_0, cuda_sm_8_0, hlsl_6_0)\n";
     ss << "  --target, -t <target>       Compilation target (spirv, ptx, glsl, hlsl)\n";
     ss << "  --mode, -m <mode>           Test mode (functional, performance)\n";
+    ss << "  --jit                       Use just-in-time compilation\n";
+    ss << "  --precompiled               Use precompiled kernels (default)\n";
     ss << "  --verbose, -v               Verbose output\n\n";
     ss << "Examples:\n";
     ss << "  kerntopia info --verbose\n";
     ss << "  kerntopia run conv2d --backend vulkan --profile glsl_450 --target spirv\n";
-    ss << "  kerntopia run all --backend cuda --profile sm_7_5 --target ptx\n\n";
+    ss << "  kerntopia run all --backend cuda --profile cuda_sm_7_0 --target ptx\n";
+    ss << "  kerntopia run conv2d --backend cuda --profile cuda_sm_7_0 --target ptx --jit\n\n";
     ss << "Available kernels: vector_add, conv2d, bilateral_filter, parallel_reduction, matrix_transpose\n";
     return ss.str();
 }

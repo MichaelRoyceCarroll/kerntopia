@@ -1,11 +1,14 @@
 #include "core/common/logger.hpp"
 #include "core/common/error_handling.hpp"
 #include "core/system/system_info_service.hpp"
+#include "core/backend/backend_factory.hpp"
+#include "command_line.hpp"
 
 #include <iostream>
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <gtest/gtest.h>
 
 using namespace kerntopia;
 
@@ -69,6 +72,120 @@ void ListAvailable() {
 }
 
 /**
+ * @brief Run tests using basic GTest integration
+ * 
+ * @param test_names List of test names to run
+ * @param config Test configuration from command line
+ * @return True if all tests passed
+ */
+bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfiguration& config) {
+    std::cout << "Running Kerntopia tests with configuration:\n";
+    std::cout << "  Backend: " << config.GetBackendName() << "\n";
+    std::cout << "  Profile: " << config.GetSlangProfileName() << "\n";
+    std::cout << "  Target: " << config.GetSlangTargetName() << "\n";
+    std::cout << "  Mode: " << config.GetModeName() << "\n";
+    std::cout << "  Compilation: " << config.GetCompilationModeName() << "\n\n";
+    
+    // Check backend availability
+    if (!BackendFactory::IsBackendAvailable(config.target_backend)) {
+        std::cerr << "Error: Backend " << config.GetBackendName() << " is not available on this system\n";
+        
+        // Show available backends
+        auto available_backends = BackendFactory::GetAvailableBackends();
+        if (!available_backends.empty()) {
+            std::cerr << "Available backends: ";
+            for (size_t i = 0; i < available_backends.size(); ++i) {
+                if (i > 0) std::cerr << ", ";
+                TestConfiguration temp_config;
+                temp_config.target_backend = available_backends[i];
+                std::cerr << temp_config.GetBackendName();
+            }
+            std::cerr << "\n";
+        }
+        return false;
+    }
+    
+    // Create GTest filter based on test names
+    std::string gtest_filter = "";
+    if (test_names.size() == 1 && test_names[0] == "all") {
+        // Run all tests
+        gtest_filter = "*";
+    } else {
+        // Build filter for specific tests
+        for (size_t i = 0; i < test_names.size(); ++i) {
+            if (i > 0) gtest_filter += ":";
+            
+            // Map test names to GTest patterns
+            if (test_names[i] == "conv2d") {
+                gtest_filter += "*Conv2D*";
+            } else if (test_names[i] == "vector_add") {
+                gtest_filter += "*VectorAdd*";
+            } else if (test_names[i] == "bilateral") {
+                gtest_filter += "*Bilateral*";
+            } else if (test_names[i] == "reduction") {
+                gtest_filter += "*Reduction*";
+            } else if (test_names[i] == "transpose") {
+                gtest_filter += "*Transpose*";
+            } else {
+                // Generic test name matching
+                gtest_filter += "*" + test_names[i] + "*";
+            }
+        }
+    }
+    
+    // Set up GTest environment variables based on configuration
+    std::string backend_filter = "";
+    switch (config.target_backend) {
+        case Backend::CUDA:
+            backend_filter = "*CUDA*";
+            break;
+        case Backend::VULKAN:
+            backend_filter = "*Vulkan*";
+            break;
+        case Backend::CPU:
+            backend_filter = "*CPU*";
+            break;
+        default:
+            backend_filter = "*";
+            break;
+    }
+    
+    // Combine test and backend filters
+    if (gtest_filter != "*" && backend_filter != "*") {
+        gtest_filter = "(" + gtest_filter + "):(" + backend_filter + ")";
+    } else if (backend_filter != "*") {
+        gtest_filter = backend_filter;
+    }
+    
+    std::cout << "Running tests with filter: " << gtest_filter << "\n\n";
+    
+    // Initialize GTest
+    int gtest_argc = 3;
+    const char* gtest_argv[] = {
+        "kerntopia",
+        "--gtest_filter",
+        gtest_filter.c_str()
+    };
+    
+    // Initialize GTest with our arguments
+    ::testing::InitGoogleTest(&gtest_argc, const_cast<char**>(gtest_argv));
+    
+    // Set up test environment - this will be used by tests to get configuration
+    // Note: In a more complete implementation, we'd use a proper test environment
+    
+    // Run tests
+    int result = RUN_ALL_TESTS();
+    
+    if (result == 0) {
+        std::cout << "\n✅ All tests passed!\n";
+        return true;
+    } else {
+        std::cout << "\n❌ Some tests failed.\n";
+        return false;
+    }
+}
+
+/**
  * @brief Parse command line arguments
  */
 int main(int argc, char* argv[]) {
@@ -111,9 +228,33 @@ int main(int argc, char* argv[]) {
             }
             
             std::string tests = argv[2];
-            std::cout << "Test execution not yet implemented.\n";
-            std::cout << "Requested tests: " << tests << "\n";
-            std::cout << "This will be implemented in Phase 3 of development.\n";
+            
+            // Parse command line arguments using CommandLineParser
+            CommandLineParser parser;
+            if (!parser.Parse(argc, argv)) {
+                std::cerr << "Error: Failed to parse command line arguments\n";
+                std::cerr << parser.GetHelpText();
+                return 1;
+            }
+            
+            // Get parsed configuration
+            auto test_config = parser.GetTestConfig();
+            auto test_names = parser.GetTestNames();
+            
+            // Initialize backend factory
+            auto init_result = BackendFactory::Initialize();
+            if (!init_result.HasValue()) {
+                std::cerr << "Error: Failed to initialize backends: " << init_result.GetError().message << "\n";
+                return 1;
+            }
+            
+            // Run tests using basic GTest integration
+            auto result = RunTestsBasic(test_names, test_config);
+            
+            // Cleanup
+            BackendFactory::Shutdown();
+            
+            return result ? 0 : 1;
         }
         else {
             std::cerr << "Error: Unknown command '" << command << "'\n";

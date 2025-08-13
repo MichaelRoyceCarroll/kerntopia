@@ -53,9 +53,9 @@ enum class ImageFormat {
  */
 enum class SlangProfile {
     GLSL_450,     ///< GLSL 4.50 profile for Vulkan
-    SM_6_0,       ///< Compute Capability 6.0 for CUDA (GTX 1060+, broadly compatible)
-    SM_7_5,       ///< Compute Capability 7.5 for CUDA (GTX 1650+, RTX 20xx+) 
-    SM_8_9,       ///< Compute Capability 8.9 for CUDA (RTX 4060+)
+    CUDA_SM_6_0,  ///< CUDA Compute Capability 6.0 (GTX 1060+, broadly compatible)
+    CUDA_SM_7_0,  ///< CUDA Compute Capability 7.0 (GTX 1650+, RTX 20xx+) 
+    CUDA_SM_8_0,  ///< CUDA Compute Capability 8.0 (RTX 4060+)
     HLSL_6_0,     ///< HLSL 6.0 for DirectX 12 (future)
     DEFAULT       ///< Auto-select based on backend
 };
@@ -163,8 +163,9 @@ struct TestConfiguration {
     std::string GetSlangProfileName() const {
         switch (slang_profile) {
             case SlangProfile::GLSL_450: return "glsl_450";
-            case SlangProfile::SM_7_5: return "sm_7_5";
-            case SlangProfile::SM_8_9: return "sm_8_9";
+            case SlangProfile::CUDA_SM_6_0: return "cuda_sm_6_0";
+            case SlangProfile::CUDA_SM_7_0: return "cuda_sm_7_0";
+            case SlangProfile::CUDA_SM_8_0: return "cuda_sm_8_0";
             case SlangProfile::HLSL_6_0: return "hlsl_6_0";
             case SlangProfile::DEFAULT: return GetDefaultSlangProfile();
             default: return "unknown";
@@ -232,7 +233,7 @@ private:
         switch (target_backend) {
             case Backend::VULKAN:
             case Backend::CPU: return "glsl_450";
-            case Backend::CUDA: return "sm_7_5";
+            case Backend::CUDA: return "cuda_sm_7_0";
             case Backend::DX12: return "hlsl_6_0";
             default: return "glsl_450";
         }
