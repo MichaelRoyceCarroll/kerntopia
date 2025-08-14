@@ -62,12 +62,37 @@ bool Conv2dCore::Setup(const std::string& ptx_path, const std::string& input_ima
 bool Conv2dCore::Execute() {
     std::cout << "Executing Conv2D kernel..." << std::endl;
     
-    // Set up kernel parameters
-    void* kernel_params[] = {
-        &d_input_image_,
-        &d_output_image_,
-        &d_constants_
-    };
+    // SLANG-compiled kernels expect buffer pointers in constant memory (SLANG_globalParams)
+    // Get the constant memory symbol
+    CUdeviceptr slang_params_ptr;
+    size_t slang_params_size;
+    CUresult result = cuModuleGetGlobal(&slang_params_ptr, &slang_params_size, cuda_module_, "SLANG_globalParams");
+    if (result != CUDA_SUCCESS) {
+        std::cerr << "Failed to get SLANG_globalParams symbol: " << result << std::endl;
+        return false;
+    }
+    
+    std::cout << "SLANG_globalParams size: " << slang_params_size << " bytes" << std::endl;
+    
+    // Populate the 40-byte parameter buffer based on PTX analysis:
+    // Offset 0: input buffer pointer (8 bytes)
+    // Offset 16: output buffer pointer (8 bytes)  
+    // Offset 32: constants buffer pointer (8 bytes)
+    uint64_t params_buffer[5] = {0}; // 40 bytes total
+    params_buffer[0] = static_cast<uint64_t>(d_input_image_);   // Offset 0
+    params_buffer[2] = static_cast<uint64_t>(d_output_image_);  // Offset 16 (index 2 = 16/8)
+    params_buffer[4] = static_cast<uint64_t>(d_constants_);     // Offset 32 (index 4 = 32/8)
+    
+    std::cout << "Buffer pointers: input=0x" << std::hex << params_buffer[0] 
+              << ", output=0x" << params_buffer[2] 
+              << ", constants=0x" << params_buffer[4] << std::dec << std::endl;
+    
+    // Copy buffer pointers to constant memory
+    result = cuMemcpyHtoD(slang_params_ptr, params_buffer, std::min(static_cast<size_t>(40), slang_params_size));
+    if (result != CUDA_SUCCESS) {
+        std::cerr << "Failed to copy parameters to SLANG_globalParams: " << result << std::endl;
+        return false;
+    }
     
     // Calculate grid dimensions (16x16 threads per block)
     unsigned int grid_x = (image_width_ + 15) / 16;
@@ -75,14 +100,14 @@ bool Conv2dCore::Execute() {
     
     std::cout << "Launching kernel: grid(" << grid_x << "x" << grid_y << "), block(16x16)" << std::endl;
     
-    // Launch kernel
-    CUresult result = cuLaunchKernel(
+    // Launch kernel with no parameters (SLANG kernels get data from constant memory)
+    result = cuLaunchKernel(
         conv2d_kernel_,
         grid_x, grid_y, 1,      // Grid dimensions
         16, 16, 1,              // Block dimensions  
         0,                      // Shared memory
         nullptr,                // Stream
-        kernel_params,          // Parameters
+        nullptr,                // Parameters (SLANG uses constant memory)
         nullptr                 // Extra
     );
     
