@@ -19,9 +19,8 @@ using namespace kerntopia;
  * @brief Print application banner and version information
  */
 void PrintBanner() {
-    std::cout << "Kerntopia v0.1.0 - SLANG-Centric GPU Benchmarking Suite\n";
-    std::cout << "Educational GPU compute kernels for learning and benchmarking\n";
-    std::cout << "Target Audience: GPU developers, SIGGRAPH attendees, GPU computing enthusiasts\n\n";
+    std::cout << "Kerntopia v0.1.0 - SLANG-Centric Kernel Execution Suite\n";
+    std::cout << "Explore compute kernels with abstracted backend selection, sandboxing, benchmarking, and more.\n";
 }
 
 /**
