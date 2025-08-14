@@ -17,7 +17,7 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
     }
     
     // Apply 3x3 convolution filter
-    float3 result = float3(0.0, 0.0, 0.0);
+    float4 result = float4(0.0, 0.0, 0.0, 1.0);
     
     // Sample 3x3 neighborhood with edge clamping
     for (int dy = -1; dy <= 1; dy++) {
@@ -31,10 +31,10 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
             // Get filter weight and input pixel
             float weight = filter_kernel[dy + 1][dx + 1];
             uint input_index = sample_coord.y * image_width + sample_coord.x;
-            float3 pixel = input_image[input_index];
+            float4 pixel = input_image[input_index];
             
-            // Accumulate weighted contribution
-            result += weight * pixel;
+            // Accumulate weighted contribution (preserve alpha)
+            result.rgb += weight * pixel.rgb;
         }
     }
     
@@ -43,9 +43,9 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
     output_image[output_index] = result;
 }
 
-// Image buffers - RGB float format
-RWStructuredBuffer<float3> input_image;
-RWStructuredBuffer<float3> output_image;
+// Image buffers - RGBA float format
+RWStructuredBuffer<float4> input_image;
+RWStructuredBuffer<float4> output_image;
 
 // 3x3 convolution kernel (e.g., edge detection, blur)
 cbuffer Constants
@@ -57,7 +57,7 @@ cbuffer Constants
 
 // Educational Notes:
 // - [numthreads(16, 16, 1)] creates 16x16 thread groups for 2D processing
-// - uint2/float3 are SLANG vector types for coordinates and RGB
+// - uint2/float4 are SLANG vector types for coordinates and RGBA
 // - Edge clamping prevents sampling outside image bounds
 // - Common filters: Gaussian blur, Sobel edge detection, sharpening
 // - This pattern scales to larger kernels (5x5, 7x7, etc.)
