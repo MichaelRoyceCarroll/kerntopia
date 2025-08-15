@@ -22,6 +22,7 @@ typedef int (*cuCtxSetCurrent_t)(void* ctx);
 typedef int (*cuModuleLoadData_t)(void** module, const void* image);
 typedef int (*cuModuleUnload_t)(void* hmod);
 typedef int (*cuModuleGetFunction_t)(void** hfunc, void* hmod, const char* name);
+typedef int (*cuModuleGetGlobal_t)(void** dptr, size_t* bytes, void* hmod, const char* name);
 typedef int (*cuMemAlloc_t)(void** dptr, size_t bytesize);
 typedef int (*cuMemFree_t)(void* dptr);
 typedef int (*cuMemcpyHtoD_t)(void* dstDevice, const void* srcHost, size_t ByteCount);
@@ -48,6 +49,7 @@ static cuCtxSetCurrent_t cu_CtxSetCurrent = nullptr;
 static cuModuleLoadData_t cu_ModuleLoadData = nullptr;
 static cuModuleUnload_t cu_ModuleUnload = nullptr;
 static cuModuleGetFunction_t cu_ModuleGetFunction = nullptr;
+static cuModuleGetGlobal_t cu_ModuleGetGlobal = nullptr;
 static cuMemAlloc_t cu_MemAlloc = nullptr;
 static cuMemFree_t cu_MemFree = nullptr;
 static cuMemcpyHtoD_t cu_MemcpyHtoD = nullptr;
@@ -441,6 +443,41 @@ Result<void> CudaKernelRunner::SetParameters(const void* params, size_t size) {
     return KERNTOPIA_VOID_SUCCESS();
 }
 
+Result<void> CudaKernelRunner::SetSlangGlobalParameters(const void* params, size_t size) {
+    if (!module_->handle) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "No module loaded");
+    }
+    
+    // Get the SLANG_globalParams constant memory symbol
+    void* slang_params_ptr;
+    size_t slang_params_size;
+    int result = cu_ModuleGetGlobal(&slang_params_ptr, &slang_params_size, module_->handle, "SLANG_globalParams");
+    if (result != CUDA_SUCCESS) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to get SLANG_globalParams symbol: " + CudaErrorToString(result));
+    }
+    
+    // Validate parameter size
+    if (size > slang_params_size) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::INVALID_ARGUMENT,
+                                     "Parameter size (" + std::to_string(size) + 
+                                     ") exceeds SLANG_globalParams size (" + std::to_string(slang_params_size) + ")");
+    }
+    
+    // Copy parameters to constant memory
+    result = cu_MemcpyHtoD(slang_params_ptr, params, size);
+    if (result != CUDA_SUCCESS) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to copy parameters to SLANG_globalParams: " + CudaErrorToString(result));
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Set SLANG global parameters: " + 
+                        std::to_string(size) + " bytes to constant memory");
+    
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
 Result<void> CudaKernelRunner::SetBuffer(int binding, std::shared_ptr<IBuffer> buffer) {
     auto cuda_buffer = std::dynamic_pointer_cast<CudaBuffer>(buffer);
     if (!cuda_buffer) {
@@ -651,6 +688,7 @@ static Result<void> InitializeCudaDriver() {
     cu_ModuleLoadData = reinterpret_cast<cuModuleLoadData_t>(loader.GetSymbol(cuda_driver_handle, "cuModuleLoadData"));
     cu_ModuleUnload = reinterpret_cast<cuModuleUnload_t>(loader.GetSymbol(cuda_driver_handle, "cuModuleUnload"));
     cu_ModuleGetFunction = reinterpret_cast<cuModuleGetFunction_t>(loader.GetSymbol(cuda_driver_handle, "cuModuleGetFunction"));
+    cu_ModuleGetGlobal = reinterpret_cast<cuModuleGetGlobal_t>(loader.GetSymbol(cuda_driver_handle, "cuModuleGetGlobal_v2"));
     cu_MemAlloc = reinterpret_cast<cuMemAlloc_t>(loader.GetSymbol(cuda_driver_handle, "cuMemAlloc_v2"));
     cu_MemFree = reinterpret_cast<cuMemFree_t>(loader.GetSymbol(cuda_driver_handle, "cuMemFree_v2"));
     cu_MemcpyHtoD = reinterpret_cast<cuMemcpyHtoD_t>(loader.GetSymbol(cuda_driver_handle, "cuMemcpyHtoD_v2"));

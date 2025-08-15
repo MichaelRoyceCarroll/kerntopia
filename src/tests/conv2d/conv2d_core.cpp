@@ -1,4 +1,6 @@
 #include "conv2d_core.hpp"
+#include "core/backend/cuda_runner.hpp"
+#include "core/common/logger.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -8,15 +10,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION  
 #include "../../../third-party/stb/stb_image_write.h"
 
+using namespace kerntopia;
+
 namespace kerntopia::conv2d {
 
-Conv2dCore::Conv2dCore() 
-    : cuda_context_(nullptr)
-    , cuda_module_(nullptr) 
-    , conv2d_kernel_(nullptr)
-    , d_input_image_(0)
-    , d_output_image_(0)
-    , d_constants_(0)
+Conv2dCore::Conv2dCore(const TestConfiguration& config, IKernelRunner* kernel_runner) 
+    : config_(config)
+    , kernel_runner_(kernel_runner)
     , image_width_(0)
     , image_height_(0) {
 }
@@ -25,115 +25,107 @@ Conv2dCore::~Conv2dCore() {
     TearDown();
 }
 
-bool Conv2dCore::Setup(const std::string& ptx_path, const std::string& input_image_path) {
-    std::cout << "Setting up Conv2D CUDA pipeline..." << std::endl;
+Result<void> Conv2dCore::Setup(const std::string& input_image_path) {
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Setting up Conv2D...");
     
-    if (!InitializeCuda()) {
-        std::cerr << "Failed to initialize CUDA" << std::endl;
-        return false;
+    // Load kernel based on configuration
+    auto kernel_result = LoadKernel();
+    if (!kernel_result) {
+        return kernel_result;
     }
     
-    if (!LoadPTXModule(ptx_path)) {
-        std::cerr << "Failed to load PTX module" << std::endl;
-        return false;
-    }
-    
-    if (!LoadInputImage(input_image_path)) {
-        std::cerr << "Failed to load input image" << std::endl;
-        return false;
+    auto result = LoadInputImage(input_image_path);
+    if (!result) {
+        return result;
     }
     
     SetupGaussianFilter();
     
-    if (!AllocateDeviceMemory()) {
-        std::cerr << "Failed to allocate device memory" << std::endl;
-        return false;
+    result = AllocateDeviceMemory();
+    if (!result) {
+        return result;
     }
     
-    if (!CopyToDevice()) {
-        std::cerr << "Failed to copy data to device" << std::endl;
-        return false;
+    result = CopyToDevice();
+    if (!result) {
+        return result;
     }
     
-    std::cout << "Setup complete!" << std::endl;
-    return true;
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Conv2D setup complete!");
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
-bool Conv2dCore::Execute() {
-    std::cout << "Executing Conv2D kernel..." << std::endl;
+Result<void> Conv2dCore::Execute() {
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Executing Conv2D kernel...");
     
-    // SLANG-compiled kernels expect buffer pointers in constant memory (SLANG_globalParams)
-    // Get the constant memory symbol
-    CUdeviceptr slang_params_ptr;
-    size_t slang_params_size;
-    CUresult result = cuModuleGetGlobal(&slang_params_ptr, &slang_params_size, cuda_module_, "SLANG_globalParams");
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to get SLANG_globalParams symbol: " << result << std::endl;
-        return false;
+    // For SLANG-compiled kernels, we need to use SLANG-specific parameter binding
+    // Get buffer device pointers for SLANG_globalParams
+    auto cuda_runner = dynamic_cast<CudaKernelRunner*>(kernel_runner_);
+    if (!cuda_runner) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Conv2D currently requires CUDA backend for SLANG parameter binding");
     }
     
-    std::cout << "SLANG_globalParams size: " << slang_params_size << " bytes" << std::endl;
+    // Get device pointers from IBuffer objects
+    auto cuda_input = std::dynamic_pointer_cast<CudaBuffer>(d_input_image_);
+    auto cuda_output = std::dynamic_pointer_cast<CudaBuffer>(d_output_image_);
+    auto cuda_constants = std::dynamic_pointer_cast<CudaBuffer>(d_constants_);
+    
+    if (!cuda_input || !cuda_output || !cuda_constants) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to cast buffers to CUDA buffers");
+    }
     
     // Populate the 40-byte parameter buffer based on PTX analysis:
     // Offset 0: input buffer pointer (8 bytes)
     // Offset 16: output buffer pointer (8 bytes)  
     // Offset 32: constants buffer pointer (8 bytes)
     uint64_t params_buffer[5] = {0}; // 40 bytes total
-    params_buffer[0] = static_cast<uint64_t>(d_input_image_);   // Offset 0
-    params_buffer[2] = static_cast<uint64_t>(d_output_image_);  // Offset 16 (index 2 = 16/8)
-    params_buffer[4] = static_cast<uint64_t>(d_constants_);     // Offset 32 (index 4 = 32/8)
+    params_buffer[0] = reinterpret_cast<uint64_t>(cuda_input->GetDevicePointer());     // Offset 0
+    params_buffer[2] = reinterpret_cast<uint64_t>(cuda_output->GetDevicePointer());    // Offset 16 (index 2 = 16/8)
+    params_buffer[4] = reinterpret_cast<uint64_t>(cuda_constants->GetDevicePointer()); // Offset 32 (index 4 = 32/8)
     
-    std::cout << "Buffer pointers: input=0x" << std::hex << params_buffer[0] 
-              << ", output=0x" << params_buffer[2] 
-              << ", constants=0x" << params_buffer[4] << std::dec << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Buffer pointers: input=0x" + 
+                       std::to_string(params_buffer[0]) + ", output=0x" + 
+                       std::to_string(params_buffer[2]) + ", constants=0x" + 
+                       std::to_string(params_buffer[4]));
     
-    // Copy buffer pointers to constant memory
-    result = cuMemcpyHtoD(slang_params_ptr, params_buffer, std::min(static_cast<size_t>(40), slang_params_size));
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to copy parameters to SLANG_globalParams: " << result << std::endl;
-        return false;
+    // Use SLANG parameter binding via CudaKernelRunner
+    auto result = cuda_runner->SetSlangGlobalParameters(params_buffer, sizeof(params_buffer));
+    if (!result) {
+        return result;
     }
     
     // Calculate grid dimensions (16x16 threads per block)
-    unsigned int grid_x = (image_width_ + 15) / 16;
-    unsigned int grid_y = (image_height_ + 15) / 16;
+    uint32_t grid_x, grid_y, grid_z;
+    kernel_runner_->CalculateDispatchSize(image_width_, image_height_, 1, grid_x, grid_y, grid_z);
     
-    std::cout << "Launching kernel: grid(" << grid_x << "x" << grid_y << "), block(16x16)" << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Launching kernel: grid(" + 
+                       std::to_string(grid_x) + "x" + std::to_string(grid_y) + "), block(16x16)");
     
-    // Launch kernel with no parameters (SLANG kernels get data from constant memory)
-    result = cuLaunchKernel(
-        conv2d_kernel_,
-        grid_x, grid_y, 1,      // Grid dimensions
-        16, 16, 1,              // Block dimensions  
-        0,                      // Shared memory
-        nullptr,                // Stream
-        nullptr,                // Parameters (SLANG uses constant memory)
-        nullptr                 // Extra
-    );
-    
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Kernel launch failed: " << result << std::endl;
-        return false;
+    // Launch kernel
+    result = kernel_runner_->Dispatch(grid_x, grid_y, grid_z);
+    if (!result) {
+        return result;
     }
     
-    // Wait for completion and check for kernel execution errors
-    result = cuCtxSynchronize();
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Kernel execution failed: " << result << std::endl;
-        return false;
+    // Wait for completion
+    result = kernel_runner_->WaitForCompletion();
+    if (!result) {
+        return result;
     }
     
-    if (!CopyFromDevice()) {
-        std::cerr << "Failed to copy results from device" << std::endl;
-        return false;
+    result = CopyFromDevice();
+    if (!result) {
+        return result;
     }
     
-    std::cout << "Kernel execution complete!" << std::endl;
-    return true;
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Kernel execution complete!");
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
-bool Conv2dCore::WriteOut(const std::string& output_path) {
-    std::cout << "Writing output to: " << output_path << std::endl;
+Result<void> Conv2dCore::WriteOut(const std::string& output_path) {
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Writing output to: " + output_path);
     
     // Convert float RGBA back to uint8 RGB (skip alpha channel)
     std::vector<uint8_t> output_bytes(image_width_ * image_height_ * 3);
@@ -161,90 +153,39 @@ bool Conv2dCore::WriteOut(const std::string& output_path) {
     );
     
     if (!result) {
-        std::cerr << "Failed to write output image" << std::endl;
-        return false;
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::IMAGING, ErrorCode::IMAGE_SAVE_FAILED,
+                                     "Failed to write output image: " + output_path);
     }
     
-    std::cout << "Output written successfully!" << std::endl;
-    return true;
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Output written successfully!");
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
 void Conv2dCore::TearDown() {
-    if (d_constants_) cuMemFree(d_constants_);
-    if (d_output_image_) cuMemFree(d_output_image_);
-    if (d_input_image_) cuMemFree(d_input_image_);
-    if (cuda_module_) cuModuleUnload(cuda_module_);
-    if (cuda_context_) cuCtxDestroy(cuda_context_);
+    // IKernelRunner manages its own cleanup - we just need to clear our references
+    d_constants_.reset();
+    d_output_image_.reset();
+    d_input_image_.reset();
     
-    d_constants_ = 0;
-    d_output_image_ = 0;
-    d_input_image_ = 0;
-    cuda_module_ = nullptr;
-    cuda_context_ = nullptr;
+    h_input_image_.clear();
+    h_output_image_.clear();
 }
 
-bool Conv2dCore::InitializeCuda() {
-    CUresult result = cuInit(0);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "cuInit failed: " << result << std::endl;
-        return false;
-    }
-    
-    CUdevice device;
-    result = cuDeviceGet(&device, 0);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "cuDeviceGet failed: " << result << std::endl;
-        return false;
-    }
-    
-    result = cuCtxCreate(&cuda_context_, 0, device);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "cuCtxCreate failed: " << result << std::endl;
-        return false;
-    }
-    
-    return true;
-}
 
-bool Conv2dCore::LoadPTXModule(const std::string& ptx_path) {
-    std::ifstream ptx_file(ptx_path);
-    if (!ptx_file.is_open()) {
-        std::cerr << "Cannot open PTX file: " << ptx_path << std::endl;
-        return false;
-    }
-    
-    std::string ptx_source((std::istreambuf_iterator<char>(ptx_file)),
-                          std::istreambuf_iterator<char>());
-    ptx_file.close();
-    
-    CUresult result = cuModuleLoadData(&cuda_module_, ptx_source.c_str());
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "cuModuleLoadData failed: " << result << std::endl;
-        return false;
-    }
-    
-    result = cuModuleGetFunction(&conv2d_kernel_, cuda_module_, "computeMain");
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "cuModuleGetFunction failed: " << result << std::endl;
-        return false;
-    }
-    
-    return true;
-}
-
-bool Conv2dCore::LoadInputImage(const std::string& input_path) {
+Result<void> Conv2dCore::LoadInputImage(const std::string& input_path) {
     int width, height, channels;
     uint8_t* image_data = stbi_load(input_path.c_str(), &width, &height, &channels, 3);
     
     if (!image_data) {
-        std::cerr << "Failed to load image: " << input_path << std::endl;
-        return false;
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::IMAGING, ErrorCode::IMAGE_LOAD_FAILED,
+                                     "Failed to load image: " + input_path);
     }
     
     image_width_ = static_cast<uint32_t>(width);
     image_height_ = static_cast<uint32_t>(height);
     
-    std::cout << "Loaded image: " << width << "x" << height << " (" << channels << " channels)" << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Loaded image: " + std::to_string(width) + "x" + 
+                       std::to_string(height) + " (" + std::to_string(channels) + " channels)");
     
     // Convert uint8 RGB to float RGBA (add alpha = 1.0)
     size_t pixel_count = image_width_ * image_height_;
@@ -260,33 +201,40 @@ bool Conv2dCore::LoadInputImage(const std::string& input_path) {
     }
     
     stbi_image_free(image_data);
-    return true;
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
-bool Conv2dCore::AllocateDeviceMemory() {
+Result<void> Conv2dCore::AllocateDeviceMemory() {
     size_t image_size = image_width_ * image_height_ * 4 * sizeof(float); // RGBA
     
-    std::cout << "Allocating device memory: " << image_size << " bytes per image" << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Allocating device memory: " + 
+                       std::to_string(image_size) + " bytes per image");
     
-    CUresult result = cuMemAlloc(&d_input_image_, image_size);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to allocate input image memory: " << result << std::endl;
-        return false;
+    // Create input image buffer
+    auto input_result = kernel_runner_->CreateBuffer(image_size, IBuffer::Type::STORAGE, IBuffer::Usage::DYNAMIC);
+    if (!input_result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
+                                     "Failed to allocate input image buffer: " + input_result.GetError().message);
     }
+    d_input_image_ = input_result.GetValue();
     
-    result = cuMemAlloc(&d_output_image_, image_size);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to allocate output image memory: " << result << std::endl;
-        return false;
+    // Create output image buffer
+    auto output_result = kernel_runner_->CreateBuffer(image_size, IBuffer::Type::STORAGE, IBuffer::Usage::DYNAMIC);
+    if (!output_result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
+                                     "Failed to allocate output image buffer: " + output_result.GetError().message);
     }
+    d_output_image_ = output_result.GetValue();
     
-    result = cuMemAlloc(&d_constants_, sizeof(Constants));
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to allocate constants memory: " << result << std::endl;
-        return false;
+    // Create constants buffer
+    auto constants_result = kernel_runner_->CreateBuffer(sizeof(Constants), IBuffer::Type::UNIFORM, IBuffer::Usage::STATIC);
+    if (!constants_result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
+                                     "Failed to allocate constants buffer: " + constants_result.GetError().message);
     }
+    d_constants_ = constants_result.GetValue();
     
-    return true;
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
 void Conv2dCore::SetupGaussianFilter() {
@@ -299,41 +247,80 @@ void Conv2dCore::SetupGaussianFilter() {
     constants_.filter_kernel[1][0] = 2.0f/16.0f; constants_.filter_kernel[1][1] = 4.0f/16.0f; constants_.filter_kernel[1][2] = 2.0f/16.0f;
     constants_.filter_kernel[2][0] = 1.0f/16.0f; constants_.filter_kernel[2][1] = 2.0f/16.0f; constants_.filter_kernel[2][2] = 1.0f/16.0f;
     
-    std::cout << "Gaussian filter setup complete" << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Gaussian filter setup complete");
 }
 
-bool Conv2dCore::CopyToDevice() {
+Result<void> Conv2dCore::CopyToDevice() {
     size_t image_size = image_width_ * image_height_ * 4 * sizeof(float); // RGBA
     
-    std::cout << "Copying " << image_size << " bytes to device..." << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Copying " + std::to_string(image_size) + " bytes to device...");
     
-    CUresult result = cuMemcpyHtoD(d_input_image_, h_input_image_.data(), image_size);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to copy input image to device: " << result << std::endl;
-        return false;
+    // Upload input image
+    auto result = d_input_image_->UploadData(h_input_image_.data(), image_size);
+    if (!result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to copy input image to device: " + result.GetError().message);
     }
     
-    result = cuMemcpyHtoD(d_constants_, &constants_, sizeof(Constants));
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to copy constants to device: " << result << std::endl;
-        return false;
+    // Upload constants
+    result = d_constants_->UploadData(&constants_, sizeof(Constants));
+    if (!result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to copy constants to device: " + result.GetError().message);
     }
     
-    return true;
+    return KERNTOPIA_VOID_SUCCESS();
 }
 
-bool Conv2dCore::CopyFromDevice() {
+Result<void> Conv2dCore::CopyFromDevice() {
     size_t image_size = image_width_ * image_height_ * 4 * sizeof(float); // RGBA
     
-    std::cout << "Copying " << image_size << " bytes from device..." << std::endl;
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Copying " + std::to_string(image_size) + " bytes from device...");
     
-    CUresult result = cuMemcpyDtoH(h_output_image_.data(), d_output_image_, image_size);
-    if (result != CUDA_SUCCESS) {
-        std::cerr << "Failed to copy output image from device: " << result << std::endl;
-        return false;
+    auto result = d_output_image_->DownloadData(h_output_image_.data(), image_size);
+    if (!result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                     "Failed to copy output image from device: " + result.GetError().message);
     }
     
-    return true;
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
+Result<void> Conv2dCore::LoadKernel() {
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Loading Conv2D kernel...");
+    
+    std::string kernel_path = GetKernelPath();
+    
+    std::ifstream file(kernel_path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::GENERAL, ErrorCode::FILE_NOT_FOUND,
+                                     "Cannot open kernel file: " + kernel_path);
+    }
+    
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    
+    std::vector<uint8_t> bytecode(size);
+    if (!file.read(reinterpret_cast<char*>(bytecode.data()), size)) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::IMAGING, ErrorCode::IMAGE_LOAD_FAILED,
+                                     "Failed to read kernel file: " + kernel_path);
+    }
+    
+    // Load kernel into the runner
+    auto load_result = kernel_runner_->LoadKernel(bytecode, "computeMain");
+    if (!load_result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::KERNEL_LOAD_FAILED,
+                                     "Failed to load kernel: " + load_result.GetError().message);
+    }
+    
+    KERNTOPIA_LOG_INFO(LogComponent::TEST, "Kernel loaded successfully from: " + kernel_path);
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
+std::string Conv2dCore::GetKernelPath() const {
+    // Use TestConfiguration to generate the correct kernel filename
+    std::string kernel_filename = config_.GetCompiledKernelFilename("conv2d");
+    return "kernels/" + kernel_filename;
 }
 
 } // namespace kerntopia::conv2d

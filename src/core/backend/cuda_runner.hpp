@@ -93,6 +93,9 @@ public:
     std::string GetDebugInfo() const override;
     bool SupportsFeature(const std::string& feature) const override;
     
+    // SLANG-specific methods for parameter binding
+    Result<void> SetSlangGlobalParameters(const void* params, size_t size);
+    
     // Static utility methods for error handling
     static std::string CudaErrorToString(int cuda_error);
 

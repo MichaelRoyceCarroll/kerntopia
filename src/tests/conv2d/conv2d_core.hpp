@@ -1,32 +1,38 @@
 #pragma once
 
-#include <cuda.h>
+#include "core/backend/ikernel_runner.hpp"
+#include "core/common/error_handling.hpp"
+#include "core/common/test_params.hpp"
 #include <vector>
 #include <string>
+#include <memory>
 
 namespace kerntopia::conv2d {
 
 class Conv2dCore {
 public:
-    Conv2dCore();
+    Conv2dCore(const kerntopia::TestConfiguration& config, kerntopia::IKernelRunner* kernel_runner);
     ~Conv2dCore();
 
-    // Main pipeline functions
-    bool Setup(const std::string& ptx_path, const std::string& input_image_path);
-    bool Execute();
-    bool WriteOut(const std::string& output_path);
+    // Main pipeline functions - Conv2DCore handles kernel loading based on config
+    kerntopia::Result<void> Setup(const std::string& input_image_path);
+    kerntopia::Result<void> Execute();
+    kerntopia::Result<void> WriteOut(const std::string& output_path);
     void TearDown();
 
 private:
-    // CUDA context and module
-    CUcontext cuda_context_;
-    CUmodule cuda_module_;
-    CUfunction conv2d_kernel_;
+    // Configuration and backend abstraction
+    kerntopia::TestConfiguration config_;
+    kerntopia::IKernelRunner* kernel_runner_;
+    
+    // Helper functions
+    kerntopia::Result<void> LoadKernel();
+    std::string GetKernelPath() const;
     
     // Device memory buffers
-    CUdeviceptr d_input_image_;
-    CUdeviceptr d_output_image_;
-    CUdeviceptr d_constants_;
+    std::shared_ptr<kerntopia::IBuffer> d_input_image_;
+    std::shared_ptr<kerntopia::IBuffer> d_output_image_;
+    std::shared_ptr<kerntopia::IBuffer> d_constants_;
     
     // Image data - using float4 (RGBA) to match SLANG float3 alignment
     std::vector<float> h_input_image_;   // Host input image (RGBA float)
@@ -46,13 +52,11 @@ private:
     Constants constants_;
     
     // Helper functions
-    bool InitializeCuda();
-    bool LoadPTXModule(const std::string& ptx_path);
-    bool LoadInputImage(const std::string& input_path);
-    bool AllocateDeviceMemory();
+    kerntopia::Result<void> LoadInputImage(const std::string& input_path);
+    kerntopia::Result<void> AllocateDeviceMemory();
     void SetupGaussianFilter();
-    bool CopyToDevice();
-    bool CopyFromDevice();
+    kerntopia::Result<void> CopyToDevice();
+    kerntopia::Result<void> CopyFromDevice();
 };
 
 } // namespace kerntopia::conv2d

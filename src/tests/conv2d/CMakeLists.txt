@@ -6,6 +6,7 @@ add_slang_kernels_to_test("conv2d" ${CMAKE_CURRENT_SOURCE_DIR})
 # Create Conv2D test library
 add_library(kerntopia_conv2d_test STATIC 
     conv2d_test.cpp
+    conv2d_core.cpp
 )
 
 target_link_libraries(kerntopia_conv2d_test

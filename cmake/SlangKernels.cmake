@@ -8,9 +8,11 @@ set(SLANG_TARGETS
     "cuda:cuda_sm_7_0:ptx"
 )
 
-# Create kernel output directory
+# Create kernel output directory and staging directory for executables
 set(KERNEL_OUTPUT_DIR ${CMAKE_BINARY_DIR}/kernels)
+set(KERNEL_STAGING_DIR ${CMAKE_BINARY_DIR}/bin/kernels)
 file(MAKE_DIRECTORY ${KERNEL_OUTPUT_DIR})
+file(MAKE_DIRECTORY ${KERNEL_STAGING_DIR})
 
 # Function to compile a single SLANG kernel for all targets
 function(compile_slang_kernel KERNEL_NAME KERNEL_SOURCE_DIR)
@@ -71,6 +73,13 @@ function(compile_slang_kernel KERNEL_NAME KERNEL_SOURCE_DIR)
         # Add to global kernel targets list  
         set_property(GLOBAL APPEND PROPERTY GLOBAL_COMPILED_KERNELS ${OUTPUT_PATH})
         set_property(GLOBAL APPEND PROPERTY GLOBAL_KERNEL_TARGETS ${TARGET_NAME})
+        
+        # Track source files for staging (only add once per source file)
+        get_property(EXISTING_SOURCES GLOBAL PROPERTY GLOBAL_KERNEL_SOURCES)
+        list(FIND EXISTING_SOURCES ${KERNEL_SOURCE_FILE} SOURCE_FOUND)
+        if(SOURCE_FOUND EQUAL -1)
+            set_property(GLOBAL APPEND PROPERTY GLOBAL_KERNEL_SOURCES ${KERNEL_SOURCE_FILE})
+        endif()
     endforeach()
 endfunction()
 
@@ -100,6 +109,23 @@ function(create_kernels_target)
         add_custom_target(kernels ALL)
         add_dependencies(kernels ${ALL_KERNEL_TARGETS})
         message(STATUS "Created kernels target depending on ${ALL_KERNEL_TARGETS}")
+        
+        # Copy kernels to staging directory for executables
+        add_custom_command(
+            TARGET kernels POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${KERNEL_OUTPUT_DIR} ${KERNEL_STAGING_DIR}
+            COMMENT "Staging kernels to bin/kernels/ for executable access"
+        )
+        
+        # Copy source SLANG files to staging directory for auditing
+        get_property(ALL_KERNEL_SOURCES GLOBAL PROPERTY GLOBAL_KERNEL_SOURCES)
+        if(ALL_KERNEL_SOURCES)
+            add_custom_command(
+                TARGET kernels POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy ${ALL_KERNEL_SOURCES} ${KERNEL_STAGING_DIR}
+                COMMENT "Copying SLANG source files for audit trail"
+            )
+        endif()
         
         # Generate compile_commands.txt for educational use
         add_custom_command(

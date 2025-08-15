@@ -180,7 +180,7 @@ std::string Logger::GetTimestamp() {
 
 const char* Logger::GetLevelString(LogLevel level) {
     switch (level) {
-        case LogLevel::DEBUG:    return "DEBUG";
+        case LogLevel::DBG:      return "DEBUG";
         case LogLevel::INFO:     return "INFO ";
         case LogLevel::WARNING:  return "WARN ";
         case LogLevel::ERROR:    return "ERROR";

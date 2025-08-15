@@ -111,6 +111,32 @@ add_subdirectory(src/core)
 # Main suite executable
 add_subdirectory(src/kerntopia)
 
+# Standalone kernel executables
+# Conv2D standalone executable
+add_executable(kerntopia-conv2d src/tests/conv2d/main.cpp)
+
+target_link_libraries(kerntopia-conv2d
+    PRIVATE
+        kerntopia_core
+        kerntopia_conv2d_test  # For Conv2dCore shared code
+        Threads::Threads
+)
+
+target_include_directories(kerntopia-conv2d
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_definitions(kerntopia-conv2d
+    PRIVATE
+        KERNTOPIA_STANDALONE_MODE
+)
+
+# Output directory
+set_target_properties(kerntopia-conv2d PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # Test executables
 add_subdirectory(src/tests)
 
@@ -124,7 +150,7 @@ endif()
 create_kernels_target()
 
 # Installation
-install(TARGETS kerntopia
+install(TARGETS kerntopia kerntopia-conv2d
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib)

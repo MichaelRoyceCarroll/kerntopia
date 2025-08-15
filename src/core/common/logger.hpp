@@ -16,7 +16,7 @@ namespace kerntopia {
  * @brief Log levels for categorizing messages
  */
 enum class LogLevel {
-    DEBUG = 0,    ///< Detailed information for debugging
+    DBG = 0,      ///< Detailed information for debugging
     INFO = 1,     ///< General information messages
     WARNING = 2,  ///< Warning messages for potential issues
     ERROR = 3,    ///< Error messages for failures
@@ -157,7 +157,7 @@ private:
 // Convenience macros for logging
 
 #define KERNTOPIA_LOG_DEBUG(component, message) \
-    kerntopia::Logger::GetInstance().Log(kerntopia::LogLevel::DEBUG, component, message)
+    kerntopia::Logger::GetInstance().Log(kerntopia::LogLevel::DBG, component, message)
 
 #define KERNTOPIA_LOG_INFO(component, message) \
     kerntopia::Logger::GetInstance().Log(kerntopia::LogLevel::INFO, component, message)
@@ -173,7 +173,7 @@ private:
 
 // Formatted logging macros
 #define KERNTOPIA_LOG_DEBUG_FMT(component, format, ...) \
-    kerntopia::Logger::GetInstance().LogFormat(kerntopia::LogLevel::DEBUG, component, format, __VA_ARGS__)
+    kerntopia::Logger::GetInstance().LogFormat(kerntopia::LogLevel::DBG, component, format, __VA_ARGS__)
 
 #define KERNTOPIA_LOG_INFO_FMT(component, format, ...) \
     kerntopia::Logger::GetInstance().LogFormat(kerntopia::LogLevel::INFO, component, format, __VA_ARGS__)
