@@ -91,6 +91,13 @@ bool CommandLineParser::ParseOptions(int argc, char* argv[]) {
         else if (arg == "--precompiled") {
             test_config_.compilation_mode = CompilationMode::PRECOMPILED;
         }
+        else if (arg == "--device" || arg == "-d") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --device requires argument\n";
+                return false;
+            }
+            if (!ParseDevice(argv[++i])) return false;
+        }
         else if (arg == "--verbose" || arg == "-v") {
             verbose_ = true;
         }
@@ -118,6 +125,7 @@ bool CommandLineParser::ParseBackend(const std::string& backend_str) {
         std::cerr << "Error: Unknown backend '" << backend_str << "'. Valid options: cuda, vulkan, cpu, dx12\n";
         return false;
     }
+    backend_specified_ = true;
     return true;
 }
 
@@ -167,6 +175,30 @@ bool CommandLineParser::ParseMode(const std::string& mode_str) {
     return true;
 }
 
+bool CommandLineParser::ParseDevice(const std::string& device_str) {
+    // Check if backend has been specified first
+    if (!backend_specified_) {
+        std::cerr << "Error: --device can only be used after --backend is specified\n";
+        return false;
+    }
+    
+    // Parse device ID
+    try {
+        int device_id = std::stoi(device_str);
+        if (device_id < 0) {
+            std::cerr << "Error: Device ID must be non-negative\n";
+            return false;
+        }
+        test_config_.device_id = device_id;
+        device_specified_ = true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: Invalid device ID '" << device_str << "'. Must be a non-negative integer\n";
+        return false;
+    }
+    
+    return true;
+}
+
 void CommandLineParser::SetDefaultProfileTarget() {
     // Set defaults based on backend if not explicitly specified
     if (test_config_.slang_profile == SlangProfile::DEFAULT) {
@@ -209,6 +241,7 @@ std::string CommandLineParser::GetHelpText() const {
     ss << "  kerntopia run all [options]                          Run all kernels\n\n";
     ss << "Options:\n";
     ss << "  --backend, -b <backend>     GPU backend (cuda, vulkan, cpu, dx12)\n";
+    ss << "  --device, -d <id>           Target device ID (use after --backend)\n";
     ss << "  --profile, -p <profile>     SLANG profile (glsl_450, cuda_sm_6_0, cuda_sm_7_0, cuda_sm_8_0, hlsl_6_0)\n";
     ss << "  --target, -t <target>       Compilation target (spirv, ptx, glsl, hlsl)\n";
     ss << "  --mode, -m <mode>           Test mode (functional, performance)\n";
@@ -217,9 +250,9 @@ std::string CommandLineParser::GetHelpText() const {
     ss << "  --verbose, -v               Verbose output\n\n";
     ss << "Examples:\n";
     ss << "  kerntopia info --verbose\n";
-    ss << "  kerntopia run conv2d --backend vulkan --profile glsl_450 --target spirv\n";
-    ss << "  kerntopia run all --backend cuda --profile cuda_sm_7_0 --target ptx\n";
-    ss << "  kerntopia run conv2d --backend cuda --profile cuda_sm_7_0 --target ptx --jit\n\n";
+    ss << "  kerntopia run conv2d --backend vulkan --device 0 --profile glsl_450 --target spirv\n";
+    ss << "  kerntopia run all --backend cuda --device 1 --profile cuda_sm_7_0 --target ptx\n";
+    ss << "  kerntopia run conv2d --backend cuda --device 0 --profile cuda_sm_7_0 --target ptx --jit\n\n";
     ss << "Available kernels: vector_add, conv2d, bilateral_filter, parallel_reduction, matrix_transpose\n";
     return ss.str();
 }

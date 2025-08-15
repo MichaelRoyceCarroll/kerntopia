@@ -59,6 +59,16 @@ public:
     bool IsHelpRequested() const { return help_requested_; }
     
     /**
+     * @brief Check if device was explicitly specified
+     */
+    bool IsDeviceSpecified() const { return device_specified_; }
+    
+    /**
+     * @brief Check if backend was explicitly specified
+     */
+    bool IsBackendSpecified() const { return backend_specified_; }
+    
+    /**
      * @brief Get help text
      */
     std::string GetHelpText() const;
@@ -70,6 +80,7 @@ private:
     bool ParseProfile(const std::string& profile_str);  
     bool ParseTarget(const std::string& target_str);
     bool ParseMode(const std::string& mode_str);
+    bool ParseDevice(const std::string& device_str);
     void SetDefaultProfileTarget();
     void PrintUsage() const;
     
@@ -82,6 +93,8 @@ private:
     bool info_command_ = false;
     bool verbose_ = false;
     bool help_requested_ = false;
+    bool backend_specified_ = false;
+    bool device_specified_ = false;
 };
 
 } // namespace kerntopia

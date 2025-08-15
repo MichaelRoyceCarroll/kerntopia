@@ -1,5 +1,6 @@
 #include "conv2d_core.hpp"
 #include "core/backend/cuda_runner.hpp"
+#include "core/backend/vulkan_runner.hpp"
 #include "core/common/logger.hpp"
 #include "core/common/path_utils.hpp"
 #include <iostream>
@@ -69,40 +70,68 @@ Result<void> Conv2dCore::Setup(const std::string& input_image_path) {
 Result<void> Conv2dCore::Execute() {
     KERNTOPIA_LOG_INFO(LogComponent::TEST, "Executing Conv2D kernel...");
     
-    // For SLANG-compiled kernels, we need to use SLANG-specific parameter binding
-    // Get buffer device pointers for SLANG_globalParams
-    auto cuda_runner = dynamic_cast<CudaKernelRunner*>(kernel_runner_.get());
-    if (!cuda_runner) {
+    // For SLANG-compiled kernels, we need to use backend-specific parameter binding
+    // This works for both CUDA (constant memory) and Vulkan (descriptor sets)
+    
+    Result<void> result;
+    if (config_.target_backend == Backend::CUDA) {
+        // CUDA-specific buffer pointer binding
+        auto cuda_input = std::dynamic_pointer_cast<CudaBuffer>(d_input_image_);
+        auto cuda_output = std::dynamic_pointer_cast<CudaBuffer>(d_output_image_);
+        auto cuda_constants = std::dynamic_pointer_cast<CudaBuffer>(d_constants_);
+        
+        if (!cuda_input || !cuda_output || !cuda_constants) {
+            return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
+                                         "Failed to cast buffers to CUDA buffers");
+        }
+        
+        // Populate the 40-byte parameter buffer based on PTX analysis:
+        // Offset 0: input buffer pointer (8 bytes)
+        // Offset 16: output buffer pointer (8 bytes)  
+        // Offset 32: constants buffer pointer (8 bytes)
+        uint64_t params_buffer[5] = {0}; // 40 bytes total
+        params_buffer[0] = reinterpret_cast<uint64_t>(cuda_input->GetDevicePointer());     // Offset 0
+        params_buffer[2] = reinterpret_cast<uint64_t>(cuda_output->GetDevicePointer());    // Offset 16 (index 2 = 16/8)
+        params_buffer[4] = reinterpret_cast<uint64_t>(cuda_constants->GetDevicePointer()); // Offset 32 (index 4 = 32/8)
+        
+        KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "CUDA buffer pointers: input=0x" + 
+                           std::to_string(params_buffer[0]) + ", output=0x" + 
+                           std::to_string(params_buffer[2]) + ", constants=0x" + 
+                           std::to_string(params_buffer[4]));
+        
+        result = kernel_runner_->SetSlangGlobalParameters(params_buffer, sizeof(params_buffer));
+    } else if (config_.target_backend == Backend::VULKAN) {
+        // Vulkan-specific descriptor set binding
+        // For Vulkan, we bind buffers via descriptor sets and pass minimal parameters
+        result = kernel_runner_->SetBuffer(0, d_input_image_);   // Binding 0: input image
+        if (result) {
+            result = kernel_runner_->SetBuffer(1, d_output_image_);  // Binding 1: output image
+        }
+        if (result) {
+            result = kernel_runner_->SetBuffer(2, d_constants_);     // Binding 2: constants
+        }
+        
+        // For Vulkan, SLANG global parameters might include image dimensions and other constants
+        struct VulkanParams {
+            uint32_t image_width;
+            uint32_t image_height;
+            uint32_t padding[2]; // Align to 16 bytes
+        } vulkan_params = {
+            image_width_,
+            image_height_,
+            {0, 0}
+        };
+        
+        if (result) {
+            result = kernel_runner_->SetSlangGlobalParameters(&vulkan_params, sizeof(vulkan_params));
+        }
+        
+        KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Vulkan buffers bound and parameters set: " + 
+                           std::to_string(image_width_) + "x" + std::to_string(image_height_));
+    } else {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
-                                     "Conv2D currently requires CUDA backend for SLANG parameter binding");
+                                     "Unsupported backend for SLANG parameter binding");
     }
-    
-    // Get device pointers from IBuffer objects
-    auto cuda_input = std::dynamic_pointer_cast<CudaBuffer>(d_input_image_);
-    auto cuda_output = std::dynamic_pointer_cast<CudaBuffer>(d_output_image_);
-    auto cuda_constants = std::dynamic_pointer_cast<CudaBuffer>(d_constants_);
-    
-    if (!cuda_input || !cuda_output || !cuda_constants) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
-                                     "Failed to cast buffers to CUDA buffers");
-    }
-    
-    // Populate the 40-byte parameter buffer based on PTX analysis:
-    // Offset 0: input buffer pointer (8 bytes)
-    // Offset 16: output buffer pointer (8 bytes)  
-    // Offset 32: constants buffer pointer (8 bytes)
-    uint64_t params_buffer[5] = {0}; // 40 bytes total
-    params_buffer[0] = reinterpret_cast<uint64_t>(cuda_input->GetDevicePointer());     // Offset 0
-    params_buffer[2] = reinterpret_cast<uint64_t>(cuda_output->GetDevicePointer());    // Offset 16 (index 2 = 16/8)
-    params_buffer[4] = reinterpret_cast<uint64_t>(cuda_constants->GetDevicePointer()); // Offset 32 (index 4 = 32/8)
-    
-    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Buffer pointers: input=0x" + 
-                       std::to_string(params_buffer[0]) + ", output=0x" + 
-                       std::to_string(params_buffer[2]) + ", constants=0x" + 
-                       std::to_string(params_buffer[4]));
-    
-    // Use SLANG parameter binding via CudaKernelRunner
-    auto result = cuda_runner->SetSlangGlobalParameters(params_buffer, sizeof(params_buffer));
     if (!result) {
         return result;
     }

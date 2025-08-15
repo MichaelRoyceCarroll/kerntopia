@@ -80,31 +80,49 @@ void ListAvailable() {
  * @param config Test configuration from command line
  * @return True if all tests passed
  */
-bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfiguration& config, bool verbose = false) {
-    std::cout << "Running Kerntopia tests with configuration:\n";
-    std::cout << "  Backend: " << config.GetBackendName() << "\n";
-    std::cout << "  Profile: " << config.GetSlangProfileName() << "\n";
-    std::cout << "  Target: " << config.GetSlangTargetName() << "\n";
-    std::cout << "  Mode: " << config.GetModeName() << "\n";
-    std::cout << "  Compilation: " << config.GetCompilationModeName() << "\n\n";
-    
-    // Check backend availability
-    if (!BackendFactory::IsBackendAvailable(config.target_backend)) {
-        std::cerr << "Error: Backend " << config.GetBackendName() << " is not available on this system\n";
+bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfiguration& config, bool verbose = false, bool device_specified = false, bool backend_specified = true) {
+    if (!backend_specified) {
+        std::cout << "Running Kerntopia tests with configuration:\n";
+        std::cout << "  Backend: ALL AVAILABLE BACKENDS\n";
+        std::cout << "  Mode: " << config.GetModeName() << "\n";
+        std::cout << "  Compilation: " << config.GetCompilationModeName() << "\n\n";
         
-        // Show available backends
+        // Show which backends will be tested
         auto available_backends = BackendFactory::GetAvailableBackends();
-        if (!available_backends.empty()) {
-            std::cerr << "Available backends: ";
-            for (size_t i = 0; i < available_backends.size(); ++i) {
-                if (i > 0) std::cerr << ", ";
-                TestConfiguration temp_config;
-                temp_config.target_backend = available_backends[i];
-                std::cerr << temp_config.GetBackendName();
-            }
-            std::cerr << "\n";
+        std::cout << "Available backends: ";
+        for (size_t i = 0; i < available_backends.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            TestConfiguration temp_config;
+            temp_config.target_backend = available_backends[i];
+            std::cout << temp_config.GetBackendName();
         }
-        return false;
+        std::cout << "\n\n";
+    } else {
+        std::cout << "Running Kerntopia tests with configuration:\n";
+        std::cout << "  Backend: " << config.GetBackendName() << "\n";
+        std::cout << "  Profile: " << config.GetSlangProfileName() << "\n";
+        std::cout << "  Target: " << config.GetSlangTargetName() << "\n";
+        std::cout << "  Mode: " << config.GetModeName() << "\n";
+        std::cout << "  Compilation: " << config.GetCompilationModeName() << "\n\n";
+        
+        // Check backend availability only when backend is explicitly specified
+        if (!BackendFactory::IsBackendAvailable(config.target_backend)) {
+            std::cerr << "Error: Backend " << config.GetBackendName() << " is not available on this system\n";
+            
+            // Show available backends
+            auto available_backends = BackendFactory::GetAvailableBackends();
+            if (!available_backends.empty()) {
+                std::cerr << "Available backends: ";
+                for (size_t i = 0; i < available_backends.size(); ++i) {
+                    if (i > 0) std::cerr << ", ";
+                    TestConfiguration temp_config;
+                    temp_config.target_backend = available_backends[i];
+                    std::cerr << temp_config.GetBackendName();
+                }
+                std::cerr << "\n";
+            }
+            return false;
+        }
     }
     
     // Create GTest filter based on test names
@@ -141,29 +159,38 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
         gtest_filter = "*";
     }
     
-    // Apply backend filtering to test names based on actual GTest naming
-    std::string backend_suffix = "";
-    switch (config.target_backend) {
-        case Backend::CUDA:
-            backend_suffix = "/CUDA";
-            break;
-        case Backend::VULKAN:
-            backend_suffix = "/Vulkan";
-            break;
-        case Backend::CPU:
-            backend_suffix = "/CPU";
-            break;
-        case Backend::DX12:
-            backend_suffix = "/DX12";
-            break;
+    // Apply backend filtering only if backend was explicitly specified
+    if (backend_specified) {
+        std::string backend_suffix = "";
+        switch (config.target_backend) {
+            case Backend::CUDA:
+                backend_suffix = "/CUDA";
+                break;
+            case Backend::VULKAN:
+                backend_suffix = "/VULKAN";
+                break;
+            case Backend::CPU:
+                backend_suffix = "/CPU";
+                break;
+            case Backend::DX12:
+                backend_suffix = "/DX12";
+                break;
+        }
+        
+        if (!backend_suffix.empty()) {
+            // Apply backend filtering based on actual test naming patterns
+            // Parameterized tests use underscore-separated naming: *CUDA_*
+            std::string backend_name = backend_suffix.substr(1); // Remove leading "/"
+            gtest_filter = "*" + backend_name + "*";
+            
+            // Add device filtering if device was explicitly specified via --device flag
+            // Test names include device ID like: CUDA_CUDA_SM_7_0_D0, CUDA_CUDA_SM_7_0_D1
+            if (device_specified) {
+                gtest_filter += "D" + std::to_string(config.device_id) + "*";
+            }
+        }
     }
-    
-    if (!backend_suffix.empty()) {
-        // Apply backend filtering based on actual test naming patterns
-        // Parameterized tests use underscore-separated naming: *CUDA_*
-        std::string backend_name = backend_suffix.substr(1); // Remove leading "/"
-        gtest_filter = "*" + backend_name + "*";
-    }
+    // If no backend specified, keep the original filter (all tests from all backends)
     
     std::cout << "Running tests with filter: " << gtest_filter << "\n";
     
@@ -280,7 +307,7 @@ int main(int argc, char* argv[]) {
             }
             
             // Run tests using basic GTest integration
-            auto result = RunTestsBasic(test_names, test_config, parser.IsVerbose());
+            auto result = RunTestsBasic(test_names, test_config, parser.IsVerbose(), parser.IsDeviceSpecified(), parser.IsBackendSpecified());
             
             // Cleanup
             BackendFactory::Shutdown();

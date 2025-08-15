@@ -21,6 +21,12 @@ public:
      */
     static std::string GetKernelsDirectory();
     
+    /**
+     * @brief Get the absolute path to the assets directory relative to the current executable
+     * @return Absolute path to assets directory (e.g., "/path/to/build/assets/")
+     */
+    static std::string GetAssetsDirectory();
+    
 private:
     /**
      * @brief Get the absolute path to the current executable

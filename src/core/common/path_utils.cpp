@@ -52,4 +52,19 @@ std::string PathUtils::GetKernelsDirectory() {
     return kernels_dir.string() + "/";
 }
 
+std::string PathUtils::GetAssetsDirectory() {
+    // Get executable directory (e.g., "/path/to/build/bin")
+    std::string exe_dir = GetExecutableDirectory();
+    
+    // Convert to filesystem path and get parent (e.g., "/path/to/build")
+    std::filesystem::path exe_dir_path(exe_dir);
+    std::filesystem::path build_dir = exe_dir_path.parent_path();
+    
+    // Construct assets directory path (e.g., "/path/to/build/assets")
+    std::filesystem::path assets_dir = build_dir / "assets";
+    
+    // Return with trailing slash for consistency
+    return assets_dir.string() + "/";
+}
+
 } // namespace kerntopia

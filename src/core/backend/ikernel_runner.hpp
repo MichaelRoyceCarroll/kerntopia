@@ -352,6 +352,19 @@ public:
      * @return True if feature is supported
      */
     virtual bool SupportsFeature(const std::string& feature) const = 0;
+    
+    /**
+     * @brief Set SLANG global parameters for kernel execution
+     * 
+     * This method provides a unified interface for setting SLANG-generated
+     * global parameters across different backends (CUDA constant memory,
+     * Vulkan descriptor sets, etc.)
+     * 
+     * @param params Pointer to parameter data buffer
+     * @param size Size of parameter data in bytes
+     * @return Success result
+     */
+    virtual Result<void> SetSlangGlobalParameters(const void* params, size_t size) = 0;
 };
 
 /**

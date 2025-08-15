@@ -148,7 +148,7 @@ struct TestConfiguration {
     std::string GetBackendName() const {
         switch (target_backend) {
             case Backend::CUDA: return "CUDA";
-            case Backend::VULKAN: return "Vulkan";
+            case Backend::VULKAN: return "VULKAN";
             case Backend::CPU: return "CPU";
             case Backend::DX12: return "DirectX12";
             default: return "Unknown";

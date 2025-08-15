@@ -149,6 +149,15 @@ endif()
 # Create kernels target after all subdirectories have been processed
 create_kernels_target()
 
+# Deploy assets to build directory (parallel to bin/ and kernels/)
+file(COPY ${CMAKE_SOURCE_DIR}/assets/
+     DESTINATION ${CMAKE_BINARY_DIR}/assets
+     FILES_MATCHING 
+     PATTERN "*.png"
+     PATTERN "*.exr" 
+     PATTERN "*.bin"
+     PATTERN "*.txt")
+
 # Installation
 install(TARGETS kerntopia kerntopia-conv2d
     RUNTIME DESTINATION bin

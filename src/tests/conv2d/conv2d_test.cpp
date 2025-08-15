@@ -1,5 +1,6 @@
 #include "tests/common/base_test.hpp"
 #include "conv2d_core.hpp"
+#include "core/common/path_utils.hpp"
 #include <gtest/gtest.h>
 #include <fstream>
 
@@ -24,7 +25,7 @@ protected:
         config_.custom_height = 512;
         
         // Use the provided test image
-        test_input_image_path_ = "/home/mcarr/kerntopia/assets/images/StockSnap_2Q79J32WX2_512x512.png";
+        test_input_image_path_ = PathUtils::GetAssetsDirectory() + "images/StockSnap_2Q79J32WX2_512x512.png";
     }
     
     // Implement BaseKernelTest pure virtual function
@@ -119,7 +120,7 @@ protected:
         config_.custom_height = 512;
         
         // Set up test image path (use member from parent class)
-        test_input_image_path_ = "/home/mcarr/kerntopia/assets/images/StockSnap_2Q79J32WX2_512x512.png";
+        test_input_image_path_ = PathUtils::GetAssetsDirectory() + "images/StockSnap_2Q79J32WX2_512x512.png";
     }
 };
 

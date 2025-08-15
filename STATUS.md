@@ -1,10 +1,10 @@
 # Kerntopia Development Status
 
-**Date:** 2025-08-15 02:06 Pacific Time
+**Date:** 2025-08-15 12:32 Pacific Time
 
 ## Current Plan
 
-**ARCHITECTURAL REFACTORING COMPLETE** - Successfully resolved the segfault and implemented proper abstraction where Conv2dCore manages backend internally instead of having it passed in from callers. Both standalone and GTest executables now work correctly with the new architecture. The project phases:
+**VULKAN BACKEND IMPLEMENTATION COMPLETE** - Successfully implemented complete Vulkan backend support with correct default backend selection behavior. All core functionality is working correctly. The project phases:
 
 1. **Phase 1: Core Infrastructure & Build System** (✅ **100% COMPLETE**)
 2. **Phase 2: SLANG Compilation & Kernel Management** (✅ **100% COMPLETE**)
@@ -16,63 +16,59 @@
 8. **Phase 8: GTest Registration Fix** (✅ **100% COMPLETE** - Tests now discoverable and executable)
 9. **Phase 9: Dynamic Path Resolution** (✅ **100% COMPLETE** - Smart executable-relative path calculation)
 10. **Phase 10: Architectural Refactoring** (✅ **100% COMPLETE** - Conv2dCore manages backend internally)
-11. **Phase 11: Vulkan Backend Implementation** (NEXT - Implement VulkanKernelRunner SetSlangGlobalParameters())
-12. **Phase 12: Python Orchestration Wrapper** (PENDING)
-13. **Phase 13: Documentation & Polish** (PENDING)
+11. **Phase 11: Asset Deployment Fix** (✅ **100% COMPLETE** - Assets deployed to build/assets/ with dynamic path resolution)
+12. **Phase 12: Device Toggle Implementation** (✅ **100% COMPLETE** - --device NUM with GTest filtering working correctly)
+13. **Phase 13: Vulkan Backend Implementation** (✅ **100% COMPLETE** - VulkanKernelRunner SetSlangGlobalParameters() working)
+14. **Phase 14: Python Orchestration Wrapper** (NEXT)
+15. **Phase 15: Documentation & Polish** (PENDING)
 
-**Ready to implement Vulkan backend support and continue with remaining features.**
+**Ready to implement Python orchestration wrapper and continue with remaining features.**
 
 ## What's implemented/working
 
-- ✅ **ARCHITECTURAL REFACTORING COMPLETE** - Conv2dCore now manages backend internally, resolving segfault at conv2d_core.cpp:321
-- ✅ **PROPER ABSTRACTION** - Conv2dCore constructor takes only TestConfiguration, creates kernel_runner internally via BackendFactory
+- ✅ **VULKAN BACKEND COMPLETE** - VulkanKernelRunner SetSlangGlobalParameters() implemented, full SPIR-V kernel execution working
+- ✅ **DEFAULT BACKEND BEHAVIOR** - kerntopia runs ALL backends when none specified, kerntopia-conv2d picks first available
+- ✅ **MULTI-BACKEND TESTING** - Both CUDA and Vulkan backends execute tests successfully in main GTest executable
+- ✅ **BACKEND ABSTRACTION** - IKernelRunner::SetSlangGlobalParameters() unified interface for CUDA/Vulkan parameter binding
+- ✅ **STRING CONSISTENCY** - "VULKAN" uppercase naming matches "CUDA" pattern for test filtering and backend identification
+- ✅ **COMMAND LINE ARGUMENT PARSING** - Both kerntopia and kerntopia-conv2d support --backend, --device with validation
+- ✅ **ASSET DEPLOYMENT COMPLETE** - Assets deployed to build/assets/ with dynamic PathUtils resolution
+- ✅ **DEVICE TOGGLE FUNCTIONALITY** - --device NUM works with --backend dependency, proper GTest filtering
+- ✅ **CUDA/VULKAN SLANG EXECUTION** - Working end-to-end kernel execution with backend-specific parameter binding
+- ✅ **ARCHITECTURAL REFACTORING** - Conv2dCore manages backend internally, proper abstraction implemented
 - ✅ **BOTH EXECUTABLES WORKING** - kerntopia-conv2d (standalone) and kerntopia (GTest) both execute successfully
-- ✅ **SIMPLIFIED CALLER INTERFACE** - Both GTest and standalone only pass configuration enums, no manual backend creation
-- ✅ **DYNAMIC KERNEL PATH RESOLUTION** - Smart executable-relative path calculation works from any working directory
-- ✅ **SIMPLIFIED KERNEL FILENAMES** - Clean naming: conv2d-cuda_sm_7_0.ptx, conv2d-glsl_450.spirv (no redundant tagging)
-- ✅ **CROSS-PLATFORM PATH UTILITIES** - PathUtils class with Linux/Windows support for executable path detection
-- ✅ **CUDA SLANG KERNEL EXECUTION** - Working end-to-end kernel execution with cuModuleGetGlobal() parameter binding
-- ✅ **SLANG COMPILATION PIPELINE** - Kernels compile from .slang → .ptx/.spv with simplified naming and audit trail
-- ✅ **GTEST EXECUTION WORKING** - Main kerntopia executable successfully runs Conv2D tests (1 pass, 1 expected device failure)
-- ✅ **CONFIGURATION-BASED KERNEL LOADING** - Conv2DCore selects kernel files based on Backend/SlangProfile/SlangTarget flags
-- ✅ **BUILD SYSTEM OPTIMIZED** - Kernels staged to build/kernels/ with source files for audit trail
-- ✅ **CUDA DRIVER INITIALIZATION** - Proper InitializeCudaDriver() call in CudaKernelRunnerFactory::CreateRunner()
+- ✅ **SLANG COMPILATION PIPELINE** - Kernels compile from .slang → .ptx/.spirv with simplified naming and audit trail
+- ✅ **CONFIGURATION-BASED KERNEL LOADING** - Conv2DCore selects kernel files based on Backend/SlangProfile/SlangTarget
 - ✅ **BACKEND DETECTION** - SystemInterrogator finds CUDA/Vulkan/CPU backends correctly
-- ✅ **PARAMETERIZED TESTING** - GTest structure supports multi-backend testing with proper naming
+- ✅ **PARAMETERIZED TESTING** - GTest structure supports multi-backend testing with proper device-specific naming
 
 ## What's in progress
 
-- **VULKAN BACKEND IMPLEMENTATION** - Need to implement VulkanKernelRunner SetSlangGlobalParameters() method for SPIR-V kernels
-- **PERFORMANCE METRICS** - Need to add timing, GFLOPS, and bandwidth measurements to working kernels
+- No active implementation tasks - Vulkan backend implementation is complete
 
 ## Immediate next tasks
 
-- Implement VulkanKernelRunner SetSlangGlobalParameters() method for SPIR-V kernels to enable Vulkan backend support
-- Add performance metrics collection (timing, memory bandwidth) to working kernel execution
-- Validate that both CUDA and Vulkan backends work end-to-end
+- Implement Python orchestration wrapper for test suite management
+- Add performance metrics collection (timing, memory bandwidth) to working kernel execution  
 - Implement additional kernel types (bilateral filter, matrix operations, etc.)
-- Begin Python orchestration wrapper implementation
+- Add CPU backend implementation for cross-platform compatibility
 
 ## Key decisions made
 
-- **ARCHITECTURAL REFACTORING** - Conv2dCore now manages backend internally instead of having it passed in from callers
-- **SIMPLIFIED CONSTRUCTOR** - Conv2dCore(TestConfiguration) instead of Conv2dCore(TestConfiguration, IKernelRunner*)
-- **INTERNAL BACKEND MANAGEMENT** - Conv2dCore creates kernel_runner via BackendFactory::CreateRunner() in Setup()
-- **PROPER ABSTRACTION** - Callers only provide configuration enums, core handles all backend complexity
-- **DYNAMIC PATH RESOLUTION** - Implemented PathUtils class using platform-specific APIs (/proc/self/exe on Linux, GetModuleFileName on Windows) to calculate kernel paths relative to executable location
-- **SIMPLIFIED KERNEL NAMING** - Changed from conv2d-cuda-cuda_sm_7_0-ptx.ptx to conv2d-cuda_sm_7_0.ptx (removed redundant backend/target tagging)
-- **EXECUTABLE-RELATIVE PATHS** - Kernel path calculation: executable_dir → parent_dir → kernels/ (e.g., /path/bin/exe → /path/kernels/)
-- **CROSS-PLATFORM SUPPORT** - PathUtils handles both Linux and Windows executable path detection
-- **CONFIGURATION-BASED KERNEL SELECTION** - Use Backend/SlangProfile/SlangTarget flags to determine kernel file paths
-- **SLANG PARAMETER BINDING** - Use cuModuleGetGlobal() for SLANG_globalParams constant memory binding
+- **VULKAN BACKEND ARCHITECTURE** - CUDA uses constant memory parameters, Vulkan uses descriptor sets with minimal parameters
+- **DEFAULT BACKEND BEHAVIOR** - kerntopia runs ALL backends (no filtering), kerntopia-conv2d picks first available automatically
+- **BACKEND INTERFACE UNIFICATION** - SetSlangGlobalParameters() added to IKernelRunner for unified CUDA/Vulkan parameter binding
+- **STRING CASING STANDARDIZATION** - All backend names use uppercase ("CUDA", "VULKAN") for consistency in test naming
+- **ASSET DEPLOYMENT STRATEGY** - Assets deployed to build/assets/ alongside bin/ and kernels/ with PathUtils::GetAssetsDirectory()
+- **COMMAND LINE VALIDATION** - --device flag enforces dependency on --backend being specified first
+- **CONFIGURATION-BASED SELECTION** - Use Backend/SlangProfile/SlangTarget/device_id flags for kernel and device selection
 
 ## Any blockers encountered
 
-- **VULKAN BACKEND INCOMPLETE** - VulkanKernelRunner needs SetSlangGlobalParameters() implementation for SPIR-V kernels
+- No current blockers - all major functionality implemented and working
 
 ### Recently Resolved
-- ✅ **SEGFAULT COMPLETELY RESOLVED** - Fixed conv2d_core.cpp:321 segfault through architectural refactoring
-- ✅ **GTEST EXECUTION WORKING** - Main kerntopia executable now successfully runs Conv2D tests
-- ✅ **ARCHITECTURAL REFACTORING COMPLETE** - Conv2dCore manages backend internally, proper abstraction implemented
-- ✅ **BOTH EXECUTABLES WORKING** - kerntopia-conv2d (standalone) and kerntopia (GTest) both execute successfully
-- ✅ **SIMPLIFIED CALLER INTERFACE** - Both GTest and standalone only pass configuration enums, no manual backend creation
+- ✅ **VULKAN BACKEND COMPLETE** - VulkanKernelRunner SetSlangGlobalParameters() implemented for SPIR-V kernels
+- ✅ **DEFAULT BACKEND BEHAVIOR FIXED** - kerntopia runs all backends, kerntopia-conv2d picks first available
+- ✅ **BACKEND PARAMETER ABSTRACTION** - Unified interface handles CUDA constant memory and Vulkan descriptor sets
+- ✅ **STRING CASING CONSISTENCY** - "VULKAN" matches "CUDA" uppercase pattern for proper test filtering

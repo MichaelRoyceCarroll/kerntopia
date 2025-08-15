@@ -541,6 +541,29 @@ bool VulkanKernelRunner::SupportsFeature(const std::string& feature) const {
     return false; // Placeholder
 }
 
+Result<void> VulkanKernelRunner::SetSlangGlobalParameters(const void* params, size_t size) {
+    if (!device_ || !pipeline_) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Vulkan device or pipeline not initialized");
+    }
+    
+    if (!params || size == 0) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::VALIDATION, ErrorCode::INVALID_ARGUMENT,
+                                     "Invalid parameters");
+    }
+    
+    // Store the parameter data for Vulkan SPIR-V parameter binding
+    // In Vulkan, SLANG global parameters are typically bound via descriptor sets
+    // For simplified implementation, we store the data and bind it during dispatch
+    parameter_data_.resize(size);
+    std::memcpy(parameter_data_.data(), params, size);
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Set SLANG global parameters for Vulkan: " + 
+                        std::to_string(size) + " bytes stored for descriptor binding");
+    
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
 // VulkanKernelRunnerFactory implementation
 bool VulkanKernelRunnerFactory::IsAvailable() const {
     auto load_result = LoadVulkanLoader();

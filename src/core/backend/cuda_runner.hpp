@@ -92,9 +92,7 @@ public:
                               uint32_t& groups_x, uint32_t& groups_y, uint32_t& groups_z) override;
     std::string GetDebugInfo() const override;
     bool SupportsFeature(const std::string& feature) const override;
-    
-    // SLANG-specific methods for parameter binding
-    Result<void> SetSlangGlobalParameters(const void* params, size_t size);
+    Result<void> SetSlangGlobalParameters(const void* params, size_t size) override;
     
     // Static utility methods for error handling
     static std::string CudaErrorToString(int cuda_error);

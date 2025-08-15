@@ -87,7 +87,7 @@ public:
     ~VulkanKernelRunner();
     
     // IKernelRunner interface implementation
-    std::string GetBackendName() const override { return "Vulkan"; }
+    std::string GetBackendName() const override { return "VULKAN"; }
     std::string GetDeviceName() const override;
     DeviceInfo GetDeviceInfo() const override;
     
@@ -104,6 +104,7 @@ public:
                               uint32_t& groups_x, uint32_t& groups_y, uint32_t& groups_z) override;
     std::string GetDebugInfo() const override;
     bool SupportsFeature(const std::string& feature) const override;
+    Result<void> SetSlangGlobalParameters(const void* params, size_t size) override;
 
 private:
     std::unique_ptr<VulkanContext> context_;
