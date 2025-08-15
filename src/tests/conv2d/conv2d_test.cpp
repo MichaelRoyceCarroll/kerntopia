@@ -29,8 +29,8 @@ protected:
     
     // Implement BaseKernelTest pure virtual function
     Result<KernelResult> ExecuteKernel() override {
-        // Create Conv2DCore with configuration - it will handle kernel loading internally
-        conv2d::Conv2dCore conv2d_core(config_, kernel_runner_.get());
+        // Create Conv2DCore with configuration - it will handle backend creation and kernel loading internally
+        conv2d::Conv2dCore conv2d_core(config_);
         
         // Setup with image path - Conv2DCore handles kernel loading based on config
         auto setup_result = conv2d_core.Setup(test_input_image_path_);
@@ -54,22 +54,22 @@ protected:
                                          "Failed to write output: " + write_result.GetError().message);
         }
         
-        // Get timing information
-        auto timing = kernel_runner_->GetLastExecutionTime();
+        // Get timing and device information from Conv2dCore
+        auto timing = conv2d_core.GetLastExecutionTime();
         
         // Create successful kernel result
         KernelResult result;
         result.success = true;
         result.kernel_name = "conv2d";
         result.backend_name = config_.GetBackendName();
-        result.device_name = kernel_runner_->GetDeviceName();
+        result.device_name = conv2d_core.GetDeviceName();
         result.timing = timing;
         result.AddMetric("output_file_path", 0.0f); // Store as metadata instead
         
         return Result<KernelResult>::Success(result);
     }
 
-private:
+protected:
     std::string test_input_image_path_;
 };
 
@@ -119,11 +119,8 @@ protected:
         config_.custom_height = 512;
         
         // Set up test image path (use member from parent class)
-        // test_input_image_path_ = "/home/mcarr/kerntopia/assets/images/StockSnap_2Q79J32WX2_512x512.png";
+        test_input_image_path_ = "/home/mcarr/kerntopia/assets/images/StockSnap_2Q79J32WX2_512x512.png";
     }
-
-private:
-    std::string test_input_image_path_;
 };
 
 // Main functional test - runs across all backend combinations

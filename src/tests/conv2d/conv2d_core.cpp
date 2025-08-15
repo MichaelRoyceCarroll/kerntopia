@@ -15,9 +15,9 @@ using namespace kerntopia;
 
 namespace kerntopia::conv2d {
 
-Conv2dCore::Conv2dCore(const TestConfiguration& config, IKernelRunner* kernel_runner) 
+Conv2dCore::Conv2dCore(const TestConfiguration& config) 
     : config_(config)
-    , kernel_runner_(kernel_runner)
+    , kernel_runner_(nullptr)
     , image_width_(0)
     , image_height_(0) {
 }
@@ -28,6 +28,16 @@ Conv2dCore::~Conv2dCore() {
 
 Result<void> Conv2dCore::Setup(const std::string& input_image_path) {
     KERNTOPIA_LOG_INFO(LogComponent::TEST, "Setting up Conv2D...");
+    
+    // Create backend kernel runner based on configuration
+    auto backend_result = BackendFactory::CreateRunner(config_.target_backend, config_.device_id);
+    if (!backend_result) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Failed to create kernel runner: " + backend_result.GetError().message);
+    }
+    kernel_runner_ = std::move(backend_result.GetValue());
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Created " + config_.GetBackendName() + " kernel runner");
     
     // Load kernel based on configuration
     auto kernel_result = LoadKernel();
@@ -61,7 +71,7 @@ Result<void> Conv2dCore::Execute() {
     
     // For SLANG-compiled kernels, we need to use SLANG-specific parameter binding
     // Get buffer device pointers for SLANG_globalParams
-    auto cuda_runner = dynamic_cast<CudaKernelRunner*>(kernel_runner_);
+    auto cuda_runner = dynamic_cast<CudaKernelRunner*>(kernel_runner_.get());
     if (!cuda_runner) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
                                      "Conv2D currently requires CUDA backend for SLANG parameter binding");
@@ -163,11 +173,15 @@ Result<void> Conv2dCore::WriteOut(const std::string& output_path) {
 }
 
 void Conv2dCore::TearDown() {
-    // IKernelRunner manages its own cleanup - we just need to clear our references
+    // Clean up owned kernel runner
+    kernel_runner_.reset();
+    
+    // Clear device memory buffers
     d_constants_.reset();
     d_output_image_.reset();
     d_input_image_.reset();
     
+    // Clear host memory
     h_input_image_.clear();
     h_output_image_.clear();
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/backend/ikernel_runner.hpp"
+#include "core/backend/backend_factory.hpp"
 #include "core/common/error_handling.hpp"
 #include "core/common/test_params.hpp"
 #include <vector>
@@ -11,7 +12,7 @@ namespace kerntopia::conv2d {
 
 class Conv2dCore {
 public:
-    Conv2dCore(const kerntopia::TestConfiguration& config, kerntopia::IKernelRunner* kernel_runner);
+    Conv2dCore(const kerntopia::TestConfiguration& config);
     ~Conv2dCore();
 
     // Main pipeline functions - Conv2DCore handles kernel loading based on config
@@ -20,10 +21,21 @@ public:
     kerntopia::Result<void> WriteOut(const std::string& output_path);
     void TearDown();
 
+    // Expose backend information for testing
+    std::string GetDeviceName() const { return kernel_runner_ ? kernel_runner_->GetDeviceName() : "Unknown"; }
+    kerntopia::TimingResults GetLastExecutionTime() const { 
+        if (kernel_runner_) {
+            return kernel_runner_->GetLastExecutionTime();
+        } else {
+            kerntopia::TimingResults empty_timing{};
+            return empty_timing;
+        }
+    }
+
 private:
     // Configuration and backend abstraction
     kerntopia::TestConfiguration config_;
-    kerntopia::IKernelRunner* kernel_runner_;
+    std::unique_ptr<kerntopia::IKernelRunner> kernel_runner_;
     
     // Helper functions
     kerntopia::Result<void> LoadKernel();

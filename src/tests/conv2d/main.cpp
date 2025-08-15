@@ -36,21 +36,11 @@ int main() {
     std::cout << "Output image: " << output_path << std::endl;
     std::cout << std::endl;
     
-    // Initialize backend - same as GTest harness
+    // Initialize backend factory - Conv2dCore will create runner internally
     kerntopia::BackendFactory::Initialize();
     
-    auto backend_result = kerntopia::BackendFactory::CreateRunner(config.target_backend, config.device_id);
-    if (!backend_result) {
-        std::cerr << "Failed to create backend: " << backend_result.GetError().message << std::endl;
-        kerntopia::BackendFactory::Shutdown();
-        kerntopia::Logger::Shutdown();
-        return 1;
-    }
-    
-    auto kernel_runner = std::move(backend_result.GetValue());
-    
-    // Use same Conv2DCore code path as GTest harness
-    kerntopia::conv2d::Conv2dCore conv2d(config, kernel_runner.get());
+    // Use same Conv2DCore code path as GTest harness - it handles backend creation internally
+    kerntopia::conv2d::Conv2dCore conv2d(config);
     
     // Execute pipeline - same interface as GTest harness
     auto setup_result = conv2d.Setup(input_path);
