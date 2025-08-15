@@ -8,11 +8,9 @@ set(SLANG_TARGETS
     "cuda:cuda_sm_7_0:ptx"
 )
 
-# Create kernel output directory and staging directory for executables
+# Create kernel output directory
 set(KERNEL_OUTPUT_DIR ${CMAKE_BINARY_DIR}/kernels)
-set(KERNEL_STAGING_DIR ${CMAKE_BINARY_DIR}/bin/kernels)
 file(MAKE_DIRECTORY ${KERNEL_OUTPUT_DIR})
-file(MAKE_DIRECTORY ${KERNEL_STAGING_DIR})
 
 # Function to compile a single SLANG kernel for all targets
 function(compile_slang_kernel KERNEL_NAME KERNEL_SOURCE_DIR)
@@ -30,18 +28,18 @@ function(compile_slang_kernel KERNEL_NAME KERNEL_SOURCE_DIR)
         list(GET TARGET_PARTS 1 PROFILE)
         list(GET TARGET_PARTS 2 TARGET)
         
-        # Generate output filename: conv2d-vulkan-glsl_450-spirv.spv
+        # Generate simplified output filename: conv2d-cuda_sm_7_0.ptx, conv2d-glsl_450.spirv
         if(${TARGET} STREQUAL "spirv")
-            set(OUTPUT_EXTENSION "spv")
+            set(OUTPUT_EXTENSION "spirv")
         elseif(${TARGET} STREQUAL "ptx")
             set(OUTPUT_EXTENSION "ptx")
         else()
             set(OUTPUT_EXTENSION ${TARGET})
         endif()
         
-        set(OUTPUT_FILENAME "${KERNEL_NAME}-${BACKEND}-${PROFILE}-${TARGET}.${OUTPUT_EXTENSION}")
+        set(OUTPUT_FILENAME "${KERNEL_NAME}-${PROFILE}.${OUTPUT_EXTENSION}")
         set(OUTPUT_PATH ${KERNEL_OUTPUT_DIR}/${OUTPUT_FILENAME})
-        set(METADATA_PATH ${KERNEL_OUTPUT_DIR}/${KERNEL_NAME}-${BACKEND}-${PROFILE}-${TARGET}.json)
+        set(METADATA_PATH ${KERNEL_OUTPUT_DIR}/${KERNEL_NAME}-${PROFILE}.json)
         
         # Build slangc command  
         # Use -profile for Vulkan/DirectX, -capability for CUDA
@@ -110,19 +108,12 @@ function(create_kernels_target)
         add_dependencies(kernels ${ALL_KERNEL_TARGETS})
         message(STATUS "Created kernels target depending on ${ALL_KERNEL_TARGETS}")
         
-        # Copy kernels to staging directory for executables
-        add_custom_command(
-            TARGET kernels POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory ${KERNEL_OUTPUT_DIR} ${KERNEL_STAGING_DIR}
-            COMMENT "Staging kernels to bin/kernels/ for executable access"
-        )
-        
-        # Copy source SLANG files to staging directory for auditing
+        # Copy source SLANG files to kernels directory for audit trail
         get_property(ALL_KERNEL_SOURCES GLOBAL PROPERTY GLOBAL_KERNEL_SOURCES)
         if(ALL_KERNEL_SOURCES)
             add_custom_command(
                 TARGET kernels POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy ${ALL_KERNEL_SOURCES} ${KERNEL_STAGING_DIR}
+                COMMAND ${CMAKE_COMMAND} -E copy ${ALL_KERNEL_SOURCES} ${KERNEL_OUTPUT_DIR}
                 COMMENT "Copying SLANG source files for audit trail"
             )
         endif()

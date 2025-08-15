@@ -6,6 +6,7 @@ set(CORE_SOURCES
     common/logger.cpp
     common/error_handling.cpp
     common/data_span.cpp
+    common/path_utils.cpp
     
     # Backend abstraction
     backend/backend_factory.cpp
@@ -29,6 +30,7 @@ set(CORE_HEADERS
     common/logger.hpp
     common/error_handling.hpp
     common/data_span.hpp
+    common/path_utils.hpp
     common/kernel_result.hpp
     common/test_params.hpp
     

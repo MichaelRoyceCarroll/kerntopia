@@ -205,24 +205,16 @@ struct TestConfiguration {
      * @brief Get compiled kernel filename
      * 
      * @param kernel_name Base kernel name (e.g., "conv2d")
-     * @return Compiled kernel filename (e.g., "conv2d-vulkan-glsl_450-spirv.spv")
+     * @return Compiled kernel filename (e.g., "conv2d-cuda_sm_7_0.ptx", "conv2d-glsl_450.spirv")
      */
     std::string GetCompiledKernelFilename(const std::string& kernel_name) const {
-        std::string backend_name;
-        switch (target_backend) {
-            case Backend::CUDA: backend_name = "cuda"; break;
-            case Backend::VULKAN: backend_name = "vulkan"; break;
-            case Backend::CPU: backend_name = "cpu"; break;
-            case Backend::DX12: backend_name = "dx12"; break;
-            default: backend_name = "unknown"; break;
-        }
-        
         std::string profile = GetSlangProfileName();
         std::string target = GetSlangTargetName();
-        std::string extension = (target == "spirv") ? "spv" : 
+        std::string extension = (target == "spirv") ? "spirv" : 
                                (target == "ptx") ? "ptx" : target;
         
-        return kernel_name + "-" + backend_name + "-" + profile + "-" + target + "." + extension;
+        // Simplified naming: conv2d-cuda_sm_7_0.ptx, conv2d-glsl_450.spirv
+        return kernel_name + "-" + profile + "." + extension;
     }
     
 private:

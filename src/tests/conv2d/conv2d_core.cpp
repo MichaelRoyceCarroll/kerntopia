@@ -1,6 +1,7 @@
 #include "conv2d_core.hpp"
 #include "core/backend/cuda_runner.hpp"
 #include "core/common/logger.hpp"
+#include "core/common/path_utils.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -290,11 +291,21 @@ Result<void> Conv2dCore::LoadKernel() {
     KERNTOPIA_LOG_INFO(LogComponent::TEST, "Loading Conv2D kernel...");
     
     std::string kernel_path = GetKernelPath();
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Attempting to load kernel from: " + kernel_path);
+    
+    // Check if file exists before attempting to open
+    std::ifstream existence_check(kernel_path);
+    if (!existence_check.good()) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::GENERAL, ErrorCode::FILE_NOT_FOUND,
+                                     "Kernel file does not exist at path: " + kernel_path + 
+                                     " (working directory relative path)");
+    }
+    existence_check.close();
     
     std::ifstream file(kernel_path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::GENERAL, ErrorCode::FILE_NOT_FOUND,
-                                     "Cannot open kernel file: " + kernel_path);
+                                     "Cannot open kernel file (file exists but failed to open): " + kernel_path);
     }
     
     std::streamsize size = file.tellg();
@@ -320,7 +331,11 @@ Result<void> Conv2dCore::LoadKernel() {
 std::string Conv2dCore::GetKernelPath() const {
     // Use TestConfiguration to generate the correct kernel filename
     std::string kernel_filename = config_.GetCompiledKernelFilename("conv2d");
-    return "kernels/" + kernel_filename;
+    
+    // Dynamically determine kernels directory based on executable location
+    std::string kernels_dir = PathUtils::GetKernelsDirectory();
+    
+    return kernels_dir + kernel_filename;
 }
 
 } // namespace kerntopia::conv2d
