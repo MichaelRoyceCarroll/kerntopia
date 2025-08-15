@@ -135,6 +135,12 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
         }
     }
     
+    // Debug: Try running without any filter first to see what tests exist
+    if (verbose) {
+        std::cout << "Debug: Running with filter '*' to discover all tests...\n";
+        gtest_filter = "*";
+    }
+    
     // Apply backend filtering to test names based on actual GTest naming
     std::string backend_suffix = "";
     switch (config.target_backend) {
@@ -154,8 +160,9 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
     
     if (!backend_suffix.empty()) {
         // Apply backend filtering based on actual test naming patterns
-        // Parameterized tests end with /BackendName
-        gtest_filter = "*" + backend_suffix;
+        // Parameterized tests use underscore-separated naming: *CUDA_*
+        std::string backend_name = backend_suffix.substr(1); // Remove leading "/"
+        gtest_filter = "*" + backend_name + "*";
     }
     
     std::cout << "Running tests with filter: " << gtest_filter << "\n";

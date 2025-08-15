@@ -104,16 +104,26 @@ protected:
         SlangTarget target = std::get<2>(params);
         int device_id = std::get<3>(params);
         
-        // Configure test based on parameters
+        // Call parent SetUp first to initialize base infrastructure
+        BaseKernelTest::SetUp();
+        
+        // Configure test based on parameters (after base setup)
         config_.target_backend = backend;
         config_.slang_profile = profile;
         config_.slang_target = target;
         config_.device_id = device_id;
         config_.compilation_mode = CompilationMode::PRECOMPILED;
         config_.mode = TestMode::FUNCTIONAL;
+        config_.size = TestSize::CUSTOM;
+        config_.custom_width = 512;
+        config_.custom_height = 512;
         
-        Conv2DFunctionalTest::SetUp();
+        // Set up test image path (use member from parent class)
+        // test_input_image_path_ = "/home/mcarr/kerntopia/assets/images/StockSnap_2Q79J32WX2_512x512.png";
     }
+
+private:
+    std::string test_input_image_path_;
 };
 
 // Main functional test - runs across all backend combinations
