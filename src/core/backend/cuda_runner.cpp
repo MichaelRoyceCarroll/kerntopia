@@ -772,7 +772,15 @@ Result<std::unique_ptr<IKernelRunner>> CudaKernelRunnerFactory::CreateRunner(int
                                      " (available: 0-" + std::to_string(devices.size() - 1) + ")");
     }
     
-    // Create and initialize runner (driver already initialized by EnumerateDevices)
+    // Initialize CUDA driver before creating the runner
+    auto driver_init_result = InitializeCudaDriver();
+    if (!driver_init_result.HasValue()) {
+        return KERNTOPIA_RESULT_ERROR(std::unique_ptr<IKernelRunner>, ErrorCategory::BACKEND,
+                                     ErrorCode::BACKEND_NOT_AVAILABLE, 
+                                     "Failed to initialize CUDA driver: " + driver_init_result.GetError().message);
+    }
+    
+    // Create and initialize runner (driver now properly initialized)
     std::unique_ptr<IKernelRunner> runner = std::make_unique<CudaKernelRunner>(device_id);
     
     KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Created CUDA kernel runner for device " + std::to_string(device_id) + 
