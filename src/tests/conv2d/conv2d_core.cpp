@@ -111,11 +111,8 @@ Result<void> Conv2dCore::Execute() {
             result = kernel_runner_->SetBuffer(2, d_constants_);     // Binding 2: constants
         }
         
-        // For Vulkan, use the complete Constants struct including filter weights
-        // This matches the SLANG cbuffer exactly: image dimensions + filter_kernel[3][3]
-        if (result) {
-            result = kernel_runner_->SetSlangGlobalParameters(&constants_, sizeof(Constants));
-        }
+        // For Vulkan, constants are already bound via SetBuffer(2, d_constants_) above
+        // No need for SetSlangGlobalParameters - Vulkan uses descriptor set binding
         
         KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Vulkan buffers bound and parameters set: " + 
                            std::to_string(image_width_) + "x" + std::to_string(image_height_));
