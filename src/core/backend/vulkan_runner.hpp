@@ -30,17 +30,20 @@ public:
     Result<void> UploadData(const void* data, size_t size, size_t offset = 0) override;
     Result<void> DownloadData(void* data, size_t size, size_t offset = 0) override;
     
-    // Vulkan-specific methods
-    void* GetBuffer() const { return buffer_; }
-    void* GetDeviceMemory() const { return device_memory_; }
+    // Vulkan-specific methods  
+    void* GetBuffer() const { return reinterpret_cast<void*>(buffer_); }
+    void* GetDeviceMemory() const { return reinterpret_cast<void*>(device_memory_); }
     
 private:
     VulkanDevice* device_;
     size_t size_;
     Type type_;
     Usage usage_;
+    
+    // Vulkan handles (stored as void* for header compatibility, cast to VkBuffer/VkDeviceMemory in implementation)
     void* buffer_ = nullptr;
     void* device_memory_ = nullptr;
+    
     void* mapped_ptr_ = nullptr;
     bool is_mapped_ = false;
     
@@ -62,13 +65,15 @@ public:
     Result<void> DownloadData(void* data, size_t data_size, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
     
     // Vulkan-specific methods
-    void* GetImage() const { return image_; }
-    void* GetImageView() const { return image_view_; }
-    void* GetDeviceMemory() const { return device_memory_; }
+    void* GetImage() const { return reinterpret_cast<void*>(image_); }
+    void* GetImageView() const { return reinterpret_cast<void*>(image_view_); }
+    void* GetDeviceMemory() const { return reinterpret_cast<void*>(device_memory_); }
     
 private:
     VulkanDevice* device_;
     TextureDesc desc_;
+    
+    // Vulkan handles (stored as void* for header compatibility, cast to VkImage/VkImageView/VkDeviceMemory in implementation)
     void* image_ = nullptr;
     void* image_view_ = nullptr;
     void* device_memory_ = nullptr;
@@ -117,6 +122,7 @@ private:
     std::map<int, std::shared_ptr<IBuffer>> bound_buffers_;
     std::map<int, std::shared_ptr<ITexture>> bound_textures_;
     std::vector<uint8_t> parameter_data_;
+    std::string entry_point_; // Store shader entry point for pipeline creation
     
     // Timing
     std::chrono::high_resolution_clock::time_point dispatch_start_;
@@ -125,8 +131,10 @@ private:
     
     bool InitializeVulkan(const DeviceInfo& device_info);
     void ShutdownVulkan();
+    Result<void> CreateComputePipeline();
     Result<void> CreateDescriptorSets();
     Result<void> UpdateDescriptorSets();
+    Result<void> EnsureCommandBuffer();
 };
 
 /**

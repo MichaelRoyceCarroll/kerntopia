@@ -81,6 +81,18 @@ target_include_directories(kerntopia_core
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Add Vulkan headers if SDK is available
+if(DEFINED ENV{VULKAN_SDK})
+    target_include_directories(kerntopia_core
+        PRIVATE
+            ${VULKAN_INCLUDE_DIR}
+    )
+    target_compile_definitions(kerntopia_core
+        PRIVATE
+            KERNTOPIA_VULKAN_SDK_AVAILABLE
+    )
+endif()
+
 # Compiler definitions
 target_compile_definitions(kerntopia_core
     PRIVATE

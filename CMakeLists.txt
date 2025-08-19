@@ -94,6 +94,32 @@ else()
     message(WARNING "Could not find slang library (JIT mode will be unavailable)")
 endif()
 
+# Vulkan SDK Configuration
+# Target VULKAN_SDK version: 1.3.290.0 (LunarG SDK)
+# Requires VULKAN_SDK environment variable to be set
+if(DEFINED ENV{VULKAN_SDK})
+    set(VULKAN_SDK_PATH $ENV{VULKAN_SDK})
+    message(STATUS "Found Vulkan SDK: ${VULKAN_SDK_PATH}")
+    
+    # Vulkan include directory (VULKAN_SDK_PATH already points to x86_64 directory)
+    set(VULKAN_INCLUDE_DIR ${VULKAN_SDK_PATH}/include)
+    if(EXISTS ${VULKAN_INCLUDE_DIR}/vulkan/vulkan.h)
+        message(STATUS "Vulkan headers found: ${VULKAN_INCLUDE_DIR}")
+    else()
+        message(FATAL_ERROR "Vulkan headers not found at ${VULKAN_INCLUDE_DIR}")
+    endif()
+    
+    # Vulkan library directory (VULKAN_SDK_PATH already points to x86_64 directory)
+    set(VULKAN_LIBRARY_DIR ${VULKAN_SDK_PATH}/lib)
+    if(EXISTS ${VULKAN_LIBRARY_DIR}/libvulkan.so)
+        message(STATUS "Vulkan loader found: ${VULKAN_LIBRARY_DIR}")
+    else()
+        message(WARNING "Vulkan loader not found at ${VULKAN_LIBRARY_DIR}")
+    endif()
+else()
+    message(WARNING "VULKAN_SDK environment variable not set - Vulkan backend will use system libraries")
+endif()
+
 # Third-party include directories
 set(KERNTOPIA_THIRD_PARTY_DIR ${CMAKE_SOURCE_DIR}/third-party)
 include_directories(${KERNTOPIA_THIRD_PARTY_DIR}/stb)
