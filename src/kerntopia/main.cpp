@@ -210,7 +210,8 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
     int gtest_argc = 2;
     std::vector<const char*> gtest_argv_vec = {
         "kerntopia",
-        gtest_filter_arg.c_str()
+        gtest_filter_arg.c_str(),
+        nullptr  // Null terminate for safety
     };
     
     const char** gtest_argv = gtest_argv_vec.data();

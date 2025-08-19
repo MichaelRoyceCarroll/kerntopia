@@ -37,6 +37,9 @@ bool Logger::Initialize(const Config& config) {
         }
     }
     
+    // Enable DEBUG logging for troubleshooting
+    instance_->SetLogLevel(LogLevel::DBG);
+    
     // Log initialization
     instance_->Log(LogLevel::INFO, LogComponent::GENERAL, "Kerntopia logger initialized");
     

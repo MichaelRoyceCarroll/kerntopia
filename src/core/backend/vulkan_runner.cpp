@@ -9,6 +9,7 @@
 #include <sstream>
 #include <thread>
 #include <iostream>
+#include <cstdlib>  // for setenv() and getenv()
 
 // Include official Vulkan headers
 #ifdef KERNTOPIA_VULKAN_SDK_AVAILABLE
@@ -87,6 +88,9 @@ typedef PFN_vkResetFences vkResetFences_t;
 
 // Static Vulkan runtime functions (loaded dynamically)
 
+// vkGetInstanceProcAddr - the only function we load directly via dlsym
+static PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
+
 // Instance functions
 static vkCreateInstance_t vkCreateInstance = nullptr;
 static vkDestroyInstance_t vkDestroyInstance = nullptr;
@@ -150,12 +154,180 @@ static vkResetFences_t vkResetFences = nullptr;
 
 static LibraryHandle vulkan_loader_handle = nullptr;
 
+// Helper function to load instance-level functions using vkGetInstanceProcAddr
+static Result<void> LoadInstanceFunctions(VkInstance instance) {
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadInstanceFunctions: Loading instance-level functions");
+    
+    if (!vkGetInstanceProcAddr) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "vkGetInstanceProcAddr not available");
+    }
+    
+    // Load instance-level functions
+    vkEnumeratePhysicalDevices = reinterpret_cast<vkEnumeratePhysicalDevices_t>(
+        vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"));
+    vkDestroyInstance = reinterpret_cast<vkDestroyInstance_t>(
+        vkGetInstanceProcAddr(instance, "vkDestroyInstance"));
+    vkGetPhysicalDeviceProperties = reinterpret_cast<vkGetPhysicalDeviceProperties_t>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"));
+    vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<vkGetPhysicalDeviceMemoryProperties_t>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"));
+    vkGetPhysicalDeviceFeatures = reinterpret_cast<vkGetPhysicalDeviceFeatures_t>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures"));
+    vkGetPhysicalDeviceQueueFamilyProperties = reinterpret_cast<vkGetPhysicalDeviceQueueFamilyProperties_t>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+    vkCreateDevice = reinterpret_cast<vkCreateDevice_t>(
+        vkGetInstanceProcAddr(instance, "vkCreateDevice"));
+    
+    // Note: Device-level functions (vkGetDeviceQueue, vkCreateBuffer, etc.) will be loaded 
+    // after device creation using vkGetDeviceProcAddr
+    
+    // Verify instance-level functions were loaded
+    if (!vkEnumeratePhysicalDevices || !vkDestroyInstance || !vkGetPhysicalDeviceProperties ||
+        !vkGetPhysicalDeviceMemoryProperties || !vkGetPhysicalDeviceFeatures ||
+        !vkGetPhysicalDeviceQueueFamilyProperties || !vkCreateDevice) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Failed to load required Vulkan instance functions");
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadInstanceFunctions: All instance functions loaded successfully");
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
+// Helper function to load device-level functions using vkGetDeviceProcAddr  
+static Result<void> LoadDeviceFunctions(VkDevice device) {
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadDeviceFunctions: Loading device-level functions");
+    
+    if (!vkGetInstanceProcAddr) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "vkGetInstanceProcAddr not available");
+    }
+    
+    // Get vkGetDeviceProcAddr from instance
+    PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkGetDeviceProcAddr"));
+    
+    if (!vkGetDeviceProcAddr) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Failed to load vkGetDeviceProcAddr");
+    }
+    
+    // Load device-level functions
+    vkDestroyDevice = reinterpret_cast<vkDestroyDevice_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyDevice"));
+    vkGetDeviceQueue = reinterpret_cast<vkGetDeviceQueue_t>(
+        vkGetDeviceProcAddr(device, "vkGetDeviceQueue"));
+    
+    // Buffer functions
+    vkCreateBuffer = reinterpret_cast<vkCreateBuffer_t>(
+        vkGetDeviceProcAddr(device, "vkCreateBuffer"));
+    vkDestroyBuffer = reinterpret_cast<vkDestroyBuffer_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyBuffer"));
+    vkGetBufferMemoryRequirements = reinterpret_cast<vkGetBufferMemoryRequirements_t>(
+        vkGetDeviceProcAddr(device, "vkGetBufferMemoryRequirements"));
+    
+    // Memory functions
+    vkAllocateMemory = reinterpret_cast<vkAllocateMemory_t>(
+        vkGetDeviceProcAddr(device, "vkAllocateMemory"));
+    vkFreeMemory = reinterpret_cast<vkFreeMemory_t>(
+        vkGetDeviceProcAddr(device, "vkFreeMemory"));
+    vkBindBufferMemory = reinterpret_cast<vkBindBufferMemory_t>(
+        vkGetDeviceProcAddr(device, "vkBindBufferMemory"));
+    vkMapMemory = reinterpret_cast<vkMapMemory_t>(
+        vkGetDeviceProcAddr(device, "vkMapMemory"));
+    vkUnmapMemory = reinterpret_cast<vkUnmapMemory_t>(
+        vkGetDeviceProcAddr(device, "vkUnmapMemory"));
+    
+    // Shader and pipeline functions
+    vkCreateShaderModule = reinterpret_cast<vkCreateShaderModule_t>(
+        vkGetDeviceProcAddr(device, "vkCreateShaderModule"));
+    vkDestroyShaderModule = reinterpret_cast<vkDestroyShaderModule_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyShaderModule"));
+    vkCreatePipelineLayout = reinterpret_cast<vkCreatePipelineLayout_t>(
+        vkGetDeviceProcAddr(device, "vkCreatePipelineLayout"));
+    vkDestroyPipelineLayout = reinterpret_cast<vkDestroyPipelineLayout_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyPipelineLayout"));
+    vkCreateComputePipelines = reinterpret_cast<vkCreateComputePipelines_t>(
+        vkGetDeviceProcAddr(device, "vkCreateComputePipelines"));
+    vkDestroyPipeline = reinterpret_cast<vkDestroyPipeline_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyPipeline"));
+    
+    // Descriptor set functions
+    vkCreateDescriptorSetLayout = reinterpret_cast<vkCreateDescriptorSetLayout_t>(
+        vkGetDeviceProcAddr(device, "vkCreateDescriptorSetLayout"));
+    vkDestroyDescriptorSetLayout = reinterpret_cast<vkDestroyDescriptorSetLayout_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyDescriptorSetLayout"));
+    vkCreateDescriptorPool = reinterpret_cast<vkCreateDescriptorPool_t>(
+        vkGetDeviceProcAddr(device, "vkCreateDescriptorPool"));
+    vkDestroyDescriptorPool = reinterpret_cast<vkDestroyDescriptorPool_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyDescriptorPool"));
+    vkAllocateDescriptorSets = reinterpret_cast<vkAllocateDescriptorSets_t>(
+        vkGetDeviceProcAddr(device, "vkAllocateDescriptorSets"));
+    vkUpdateDescriptorSets = reinterpret_cast<vkUpdateDescriptorSets_t>(
+        vkGetDeviceProcAddr(device, "vkUpdateDescriptorSets"));
+    
+    // Command buffer functions
+    vkCreateCommandPool = reinterpret_cast<vkCreateCommandPool_t>(
+        vkGetDeviceProcAddr(device, "vkCreateCommandPool"));
+    vkDestroyCommandPool = reinterpret_cast<vkDestroyCommandPool_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyCommandPool"));
+    vkAllocateCommandBuffers = reinterpret_cast<vkAllocateCommandBuffers_t>(
+        vkGetDeviceProcAddr(device, "vkAllocateCommandBuffers"));
+    vkFreeCommandBuffers = reinterpret_cast<vkFreeCommandBuffers_t>(
+        vkGetDeviceProcAddr(device, "vkFreeCommandBuffers"));
+    vkBeginCommandBuffer = reinterpret_cast<vkBeginCommandBuffer_t>(
+        vkGetDeviceProcAddr(device, "vkBeginCommandBuffer"));
+    vkEndCommandBuffer = reinterpret_cast<vkEndCommandBuffer_t>(
+        vkGetDeviceProcAddr(device, "vkEndCommandBuffer"));
+    vkCmdBindPipeline = reinterpret_cast<vkCmdBindPipeline_t>(
+        vkGetDeviceProcAddr(device, "vkCmdBindPipeline"));
+    vkCmdBindDescriptorSets = reinterpret_cast<vkCmdBindDescriptorSets_t>(
+        vkGetDeviceProcAddr(device, "vkCmdBindDescriptorSets"));
+    vkCmdDispatch = reinterpret_cast<vkCmdDispatch_t>(
+        vkGetDeviceProcAddr(device, "vkCmdDispatch"));
+    
+    // Queue and synchronization functions
+    vkQueueSubmit = reinterpret_cast<vkQueueSubmit_t>(
+        vkGetDeviceProcAddr(device, "vkQueueSubmit"));
+    vkQueueWaitIdle = reinterpret_cast<vkQueueWaitIdle_t>(
+        vkGetDeviceProcAddr(device, "vkQueueWaitIdle"));
+    vkCreateFence = reinterpret_cast<vkCreateFence_t>(
+        vkGetDeviceProcAddr(device, "vkCreateFence"));
+    vkDestroyFence = reinterpret_cast<vkDestroyFence_t>(
+        vkGetDeviceProcAddr(device, "vkDestroyFence"));
+    vkWaitForFences = reinterpret_cast<vkWaitForFences_t>(
+        vkGetDeviceProcAddr(device, "vkWaitForFences"));
+    vkResetFences = reinterpret_cast<vkResetFences_t>(
+        vkGetDeviceProcAddr(device, "vkResetFences"));
+    
+    // Verify all device-level functions were loaded
+    if (!vkDestroyDevice || !vkGetDeviceQueue || !vkCreateBuffer || !vkDestroyBuffer || 
+        !vkGetBufferMemoryRequirements || !vkAllocateMemory || !vkFreeMemory || !vkBindBufferMemory ||
+        !vkMapMemory || !vkUnmapMemory || !vkCreateShaderModule || !vkDestroyShaderModule ||
+        !vkCreatePipelineLayout || !vkDestroyPipelineLayout || !vkCreateComputePipelines || !vkDestroyPipeline ||
+        !vkCreateDescriptorSetLayout || !vkDestroyDescriptorSetLayout || !vkCreateDescriptorPool || 
+        !vkDestroyDescriptorPool || !vkAllocateDescriptorSets || !vkUpdateDescriptorSets ||
+        !vkCreateCommandPool || !vkDestroyCommandPool || !vkAllocateCommandBuffers || !vkFreeCommandBuffers ||
+        !vkBeginCommandBuffer || !vkEndCommandBuffer || !vkCmdBindPipeline || !vkCmdBindDescriptorSets ||
+        !vkCmdDispatch || !vkQueueSubmit || !vkQueueWaitIdle || !vkCreateFence || !vkDestroyFence ||
+        !vkWaitForFences || !vkResetFences) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Failed to load required Vulkan device functions");
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadDeviceFunctions: All device functions loaded successfully");
+    return KERNTOPIA_VOID_SUCCESS();
+}
+
 // Helper function to load Vulkan loader
 static Result<void> LoadVulkanLoader() {
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Starting");
     if (vulkan_loader_handle) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Already loaded, returning");
         return KERNTOPIA_VOID_SUCCESS(); // Already loaded
     }
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Creating RuntimeLoader");
     RuntimeLoader loader;
     
     // Use same search strategy as detection: respect LD_LIBRARY_PATH first, then system paths
@@ -210,131 +382,44 @@ static Result<void> LoadVulkanLoader() {
                                      "Failed to load Vulkan loader library");
     }
     
-    // Load all required function pointers for compute pipeline support
+    // Load vkGetInstanceProcAddr - the ONLY function we can load directly via dlsym
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkGetInstanceProcAddr via dlsym");
+    vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        loader.GetSymbol(vulkan_loader_handle, "vkGetInstanceProcAddr"));
     
-    // Instance functions
-    vkCreateInstance = reinterpret_cast<vkCreateInstance_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateInstance"));
-    vkDestroyInstance = reinterpret_cast<vkDestroyInstance_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyInstance"));
-    vkEnumeratePhysicalDevices = reinterpret_cast<vkEnumeratePhysicalDevices_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkEnumeratePhysicalDevices"));
-    vkGetPhysicalDeviceProperties = reinterpret_cast<vkGetPhysicalDeviceProperties_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetPhysicalDeviceProperties"));
-    vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<vkGetPhysicalDeviceMemoryProperties_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetPhysicalDeviceMemoryProperties"));
-    vkGetPhysicalDeviceFeatures = reinterpret_cast<vkGetPhysicalDeviceFeatures_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetPhysicalDeviceFeatures"));
-    vkGetPhysicalDeviceQueueFamilyProperties = reinterpret_cast<vkGetPhysicalDeviceQueueFamilyProperties_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetPhysicalDeviceQueueFamilyProperties"));
-    
-    // Device functions
-    vkCreateDevice = reinterpret_cast<vkCreateDevice_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateDevice"));
-    vkDestroyDevice = reinterpret_cast<vkDestroyDevice_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyDevice"));
-    vkGetDeviceQueue = reinterpret_cast<vkGetDeviceQueue_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetDeviceQueue"));
-    
-    // Buffer functions
-    vkCreateBuffer = reinterpret_cast<vkCreateBuffer_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateBuffer"));
-    vkDestroyBuffer = reinterpret_cast<vkDestroyBuffer_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyBuffer"));
-    vkGetBufferMemoryRequirements = reinterpret_cast<vkGetBufferMemoryRequirements_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetBufferMemoryRequirements"));
-    
-    // Memory functions
-    vkAllocateMemory = reinterpret_cast<vkAllocateMemory_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkAllocateMemory"));
-    vkFreeMemory = reinterpret_cast<vkFreeMemory_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkFreeMemory"));
-    vkBindBufferMemory = reinterpret_cast<vkBindBufferMemory_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkBindBufferMemory"));
-    vkMapMemory = reinterpret_cast<vkMapMemory_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkMapMemory"));
-    vkUnmapMemory = reinterpret_cast<vkUnmapMemory_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkUnmapMemory"));
-    
-    // Shader and pipeline functions
-    vkCreateShaderModule = reinterpret_cast<vkCreateShaderModule_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateShaderModule"));
-    vkDestroyShaderModule = reinterpret_cast<vkDestroyShaderModule_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyShaderModule"));
-    vkCreatePipelineLayout = reinterpret_cast<vkCreatePipelineLayout_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreatePipelineLayout"));
-    vkDestroyPipelineLayout = reinterpret_cast<vkDestroyPipelineLayout_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyPipelineLayout"));
-    vkCreateComputePipelines = reinterpret_cast<vkCreateComputePipelines_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateComputePipelines"));
-    vkDestroyPipeline = reinterpret_cast<vkDestroyPipeline_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyPipeline"));
-    
-    // Descriptor set functions
-    vkCreateDescriptorSetLayout = reinterpret_cast<vkCreateDescriptorSetLayout_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateDescriptorSetLayout"));
-    vkDestroyDescriptorSetLayout = reinterpret_cast<vkDestroyDescriptorSetLayout_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyDescriptorSetLayout"));
-    vkCreateDescriptorPool = reinterpret_cast<vkCreateDescriptorPool_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateDescriptorPool"));
-    vkDestroyDescriptorPool = reinterpret_cast<vkDestroyDescriptorPool_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyDescriptorPool"));
-    vkAllocateDescriptorSets = reinterpret_cast<vkAllocateDescriptorSets_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkAllocateDescriptorSets"));
-    vkUpdateDescriptorSets = reinterpret_cast<vkUpdateDescriptorSets_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkUpdateDescriptorSets"));
-    
-    // Command buffer functions
-    vkCreateCommandPool = reinterpret_cast<vkCreateCommandPool_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateCommandPool"));
-    vkDestroyCommandPool = reinterpret_cast<vkDestroyCommandPool_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyCommandPool"));
-    vkAllocateCommandBuffers = reinterpret_cast<vkAllocateCommandBuffers_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkAllocateCommandBuffers"));
-    vkFreeCommandBuffers = reinterpret_cast<vkFreeCommandBuffers_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkFreeCommandBuffers"));
-    vkBeginCommandBuffer = reinterpret_cast<vkBeginCommandBuffer_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkBeginCommandBuffer"));
-    vkEndCommandBuffer = reinterpret_cast<vkEndCommandBuffer_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkEndCommandBuffer"));
-    vkCmdBindPipeline = reinterpret_cast<vkCmdBindPipeline_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCmdBindPipeline"));
-    vkCmdBindDescriptorSets = reinterpret_cast<vkCmdBindDescriptorSets_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCmdBindDescriptorSets"));
-    vkCmdDispatch = reinterpret_cast<vkCmdDispatch_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCmdDispatch"));
-    
-    // Queue and synchronization functions
-    vkQueueSubmit = reinterpret_cast<vkQueueSubmit_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkQueueSubmit"));
-    vkQueueWaitIdle = reinterpret_cast<vkQueueWaitIdle_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkQueueWaitIdle"));
-    vkCreateFence = reinterpret_cast<vkCreateFence_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkCreateFence"));
-    vkDestroyFence = reinterpret_cast<vkDestroyFence_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkDestroyFence"));
-    vkWaitForFences = reinterpret_cast<vkWaitForFences_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkWaitForFences"));
-    vkResetFences = reinterpret_cast<vkResetFences_t>(
-        loader.GetSymbol(vulkan_loader_handle, "vkResetFences"));
-    
-    // Verify all critical functions were loaded for compute pipeline support
-    if (!vkCreateInstance || !vkDestroyInstance || !vkEnumeratePhysicalDevices || 
-        !vkGetPhysicalDeviceProperties || !vkGetPhysicalDeviceMemoryProperties || !vkGetPhysicalDeviceFeatures ||
-        !vkGetPhysicalDeviceQueueFamilyProperties || !vkCreateDevice || !vkDestroyDevice || !vkGetDeviceQueue ||
-        !vkCreateBuffer || !vkDestroyBuffer || !vkGetBufferMemoryRequirements || 
-        !vkAllocateMemory || !vkFreeMemory || !vkBindBufferMemory || !vkMapMemory || !vkUnmapMemory ||
-        !vkCreateShaderModule || !vkDestroyShaderModule || !vkCreatePipelineLayout || !vkDestroyPipelineLayout ||
-        !vkCreateComputePipelines || !vkDestroyPipeline ||
-        !vkCreateDescriptorSetLayout || !vkDestroyDescriptorSetLayout || !vkCreateDescriptorPool || !vkDestroyDescriptorPool ||
-        !vkAllocateDescriptorSets || !vkUpdateDescriptorSets ||
-        !vkCreateCommandPool || !vkDestroyCommandPool || !vkAllocateCommandBuffers || !vkFreeCommandBuffers ||
-        !vkBeginCommandBuffer || !vkEndCommandBuffer || !vkCmdBindPipeline || !vkCmdBindDescriptorSets || !vkCmdDispatch ||
-        !vkQueueSubmit || !vkQueueWaitIdle || !vkCreateFence || !vkDestroyFence || !vkWaitForFences || !vkResetFences) {
+    if (!vkGetInstanceProcAddr) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
-                                     "Failed to load required Vulkan compute pipeline functions");
+                                     "Failed to load vkGetInstanceProcAddr via dlsym");
     }
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: vkGetInstanceProcAddr loaded: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(vkGetInstanceProcAddr)));
+    
+    // Load global-level functions using vkGetInstanceProcAddr with NULL instance
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkCreateInstance via vkGetInstanceProcAddr");
+    vkCreateInstance = reinterpret_cast<vkCreateInstance_t>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance"));
+    
+    if (!vkCreateInstance) {
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Failed to load vkCreateInstance via vkGetInstanceProcAddr");
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: vkCreateInstance loaded: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
+    
+    // Note: vkEnumeratePhysicalDevices is an instance-level function and will be loaded
+    // in LoadInstanceFunctions() after instance creation
+    
+    // Verify critical global-level functions were loaded
+    if (!vkCreateInstance) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Verification failed - vkCreateInstance: " +
+                           std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Failed to load required Vulkan global functions");
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: All function pointers loaded successfully");
     return KERNTOPIA_VOID_SUCCESS();
 }
 
@@ -1209,18 +1294,24 @@ std::string VulkanKernelRunnerFactory::GetVersion() const {
 // VulkanKernelRunner implementation methods
 bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Initializing Vulkan backend for device: " + device_info.name);
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 1: Starting InitializeVulkan");
     
     // Ensure Vulkan loader is loaded
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 2: About to call LoadVulkanLoader");
     auto load_result = LoadVulkanLoader();
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 3: LoadVulkanLoader completed");
     if (!load_result) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to load Vulkan loader: " + load_result.GetError().message);
         return false;
     }
     
     // Initialize context
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 4: About to create VulkanContext");
     context_ = std::make_unique<VulkanContext>();
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 5: VulkanContext created successfully");
     
     // Verify that Vulkan functions are loaded
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "STEP 6: About to verify Vulkan functions");
     if (!vkCreateInstance) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "vkCreateInstance function pointer is null - Vulkan loader failed");
         return false;
@@ -1228,7 +1319,19 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Creating Vulkan instance...");
     
-    // Create minimal Vulkan instance for compute (no validation layers, no extensions)
+    // Force Lavapipe ICD selection for CPU Vulkan support in WSL
+    const char* vk_icd_filenames = std::getenv("VK_ICD_FILENAMES");
+    if (!vk_icd_filenames) {
+        // Set environment variable to force Lavapipe (CPU Vulkan implementation)
+        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Setting VK_ICD_FILENAMES to force Lavapipe CPU implementation");
+        setenv("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json", 1);
+    } else {
+        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: About to exit ICD check block");
+    }
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: After ICD environment setup");
+    
+    // Create minimal Vulkan instance for compute
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pApplicationName = "Kerntopia";
@@ -1237,14 +1340,37 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     app_info.engineVersion = VK_MAKE_VERSION(0, 1, 0);
     app_info.apiVersion = VK_API_VERSION_1_0;
     
+    // Create minimal Vulkan instance - temporarily removing validation layers to isolate memory corruption
     VkInstanceCreateInfo instance_info = {};
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pApplicationInfo = &app_info;
+    instance_info.enabledLayerCount = 0;
+    instance_info.ppEnabledLayerNames = nullptr;
+    instance_info.enabledExtensionCount = 0;
+    instance_info.ppEnabledExtensionNames = nullptr;
+    
+    // Debug logging to isolate vkCreateInstance issue
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "About to call vkCreateInstance...");
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Function pointer vkCreateInstance: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "instance_info.sType: " + std::to_string(instance_info.sType));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "instance_info.pApplicationInfo: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(instance_info.pApplicationInfo)));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "app_info.apiVersion: " + std::to_string(app_info.apiVersion));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "context_->instance address: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(&context_->instance)));
     
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling vkCreateInstance...");
     VkResult result = vkCreateInstance(&instance_info, nullptr, &context_->instance);
     if (result != VK_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to create Vulkan instance: " + VulkanResultString(result));
+        return false;
+    }
+    
+    // Load instance-level functions now that we have a VkInstance
+    auto load_instance_result = LoadInstanceFunctions(context_->instance);
+    if (!load_instance_result) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to load Vulkan instance functions: " + load_instance_result.GetError().message);
         return false;
     }
     
@@ -1313,6 +1439,13 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     result = vkCreateDevice(device_->physical_device, &device_create_info, nullptr, &device_->logical_device);
     if (result != VK_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to create logical device: " + VulkanResultString(result));
+        return false;
+    }
+    
+    // Load device-level functions now that we have a VkDevice
+    auto load_device_result = LoadDeviceFunctions(device_->logical_device);
+    if (!load_device_result) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to load Vulkan device functions: " + load_device_result.GetError().message);
         return false;
     }
     
