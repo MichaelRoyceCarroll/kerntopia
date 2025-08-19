@@ -163,9 +163,13 @@ static Result<void> LoadInstanceFunctions(VkInstance instance) {
                                      "vkGetInstanceProcAddr not available");
     }
     
-    // Load instance-level functions
+    // Load instance-level functions (these require a valid VkInstance handle)
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadInstanceFunctions: Loading vkEnumeratePhysicalDevices with instance");
     vkEnumeratePhysicalDevices = reinterpret_cast<vkEnumeratePhysicalDevices_t>(
         vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadInstanceFunctions: vkEnumeratePhysicalDevices loaded: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(vkEnumeratePhysicalDevices)));
+    
     vkDestroyInstance = reinterpret_cast<vkDestroyInstance_t>(
         vkGetInstanceProcAddr(instance, "vkDestroyInstance"));
     vkGetPhysicalDeviceProperties = reinterpret_cast<vkGetPhysicalDeviceProperties_t>(
@@ -327,23 +331,24 @@ static Result<void> LoadVulkanLoader() {
         return KERNTOPIA_VOID_SUCCESS(); // Already loaded
     }
     
+    // CRITICAL: Set ICD environment variable BEFORE any Vulkan operations
+    const char* vk_icd_filenames = std::getenv("VK_ICD_FILENAMES");
+    if (!vk_icd_filenames) {
+        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: Setting VK_ICD_FILENAMES for Lavapipe");
+        setenv("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json", 1);
+    } else {
+        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
+    }
+    
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Creating RuntimeLoader");
     RuntimeLoader loader;
     
-    // Use same search strategy as detection: respect LD_LIBRARY_PATH first, then system paths
+    // EMERGENCY FIX: Test with system loader first since minimal test works
+    // Use same search strategy as detection but prioritize SYSTEM loader over VULKAN_SDK
     std::vector<std::string> vulkan_candidates;
     std::string selected_loader;
     
-    // First priority: Use ScanForLibraries (respects LD_LIBRARY_PATH)
-    std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
-    auto scan_result = loader.ScanForLibraries(vulkan_patterns);
-    if (scan_result) {
-        for (const auto& [name, lib_info] : *scan_result) {
-            vulkan_candidates.push_back(lib_info.full_path);
-        }
-    }
-    
-    // Second priority: Add standard system paths as fallbacks
+    // FIRST priority: System paths (these work with our minimal test)
     std::vector<std::string> system_paths = {
         "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
         "/usr/lib/x86_64-linux-gnu/libvulkan.so",
@@ -351,10 +356,20 @@ static Result<void> LoadVulkanLoader() {
         "/usr/lib/libvulkan.so"
     };
     
-    // Add system paths that weren't already found by scan
+    // Add system paths first
     for (const std::string& path : system_paths) {
-        if (std::find(vulkan_candidates.begin(), vulkan_candidates.end(), path) == vulkan_candidates.end()) {
-            vulkan_candidates.push_back(path);
+        vulkan_candidates.push_back(path);
+    }
+    
+    // SECOND priority: Use ScanForLibraries for SDK/custom paths
+    std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
+    auto scan_result = loader.ScanForLibraries(vulkan_patterns);
+    if (scan_result) {
+        for (const auto& [name, lib_info] : *scan_result) {
+            // Only add if not already in system paths
+            if (std::find(vulkan_candidates.begin(), vulkan_candidates.end(), lib_info.full_path) == vulkan_candidates.end()) {
+                vulkan_candidates.push_back(lib_info.full_path);
+            }
         }
     }
     
@@ -395,8 +410,12 @@ static Result<void> LoadVulkanLoader() {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: vkGetInstanceProcAddr loaded: " +
                        std::to_string(reinterpret_cast<uintptr_t>(vkGetInstanceProcAddr)));
     
-    // Load global-level functions using vkGetInstanceProcAddr with NULL instance
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkCreateInstance via vkGetInstanceProcAddr");
+    // Load ONLY global-level functions using vkGetInstanceProcAddr with NULL instance
+    // According to Vulkan spec, only these functions can be loaded with VK_NULL_HANDLE:
+    // - vkEnumerateInstanceVersion, vkEnumerateInstanceExtensionProperties, 
+    //   vkEnumerateInstanceLayerProperties, vkCreateInstance
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkCreateInstance via vkGetInstanceProcAddr(NULL)");
     vkCreateInstance = reinterpret_cast<vkCreateInstance_t>(
         vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance"));
     
@@ -408,8 +427,8 @@ static Result<void> LoadVulkanLoader() {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: vkCreateInstance loaded: " +
                        std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
     
-    // Note: vkEnumeratePhysicalDevices is an instance-level function and will be loaded
-    // in LoadInstanceFunctions() after instance creation
+    // Note: ALL other functions (including vkEnumeratePhysicalDevices) are instance-level
+    // and MUST be loaded in LoadInstanceFunctions() with a valid VkInstance handle
     
     // Verify critical global-level functions were loaded
     if (!vkCreateInstance) {
@@ -1320,6 +1339,7 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Creating Vulkan instance...");
     
     // Force Lavapipe ICD selection for CPU Vulkan support in WSL
+    // CRITICAL: Set this BEFORE any Vulkan library operations
     const char* vk_icd_filenames = std::getenv("VK_ICD_FILENAMES");
     if (!vk_icd_filenames) {
         // Set environment variable to force Lavapipe (CPU Vulkan implementation)
@@ -1327,9 +1347,11 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
         setenv("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json", 1);
     } else {
         KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
-        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: About to exit ICD check block");
     }
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: After ICD environment setup");
+    
+    // Test: Use local stack variable like our working test
+    VkInstance test_instance = VK_NULL_HANDLE;
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: Using local stack variable for instance");
     
     // Create minimal Vulkan instance for compute
     VkApplicationInfo app_info = {};
@@ -1357,15 +1379,19 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "instance_info.pApplicationInfo: " + 
                        std::to_string(reinterpret_cast<uintptr_t>(instance_info.pApplicationInfo)));
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "app_info.apiVersion: " + std::to_string(app_info.apiVersion));
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "context_->instance address: " + 
-                       std::to_string(reinterpret_cast<uintptr_t>(&context_->instance)));
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "test_instance address: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(&test_instance)));
     
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling vkCreateInstance...");
-    VkResult result = vkCreateInstance(&instance_info, nullptr, &context_->instance);
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling vkCreateInstance with local variable...");
+    VkResult result = vkCreateInstance(&instance_info, nullptr, &test_instance);
     if (result != VK_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to create Vulkan instance: " + VulkanResultString(result));
         return false;
     }
+    
+    // If successful, copy to context
+    context_->instance = test_instance;
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "SUCCESS: vkCreateInstance worked with local variable!");
     
     // Load instance-level functions now that we have a VkInstance
     auto load_instance_result = LoadInstanceFunctions(context_->instance);
