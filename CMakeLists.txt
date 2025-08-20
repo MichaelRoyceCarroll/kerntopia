@@ -22,8 +22,12 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG -fsanitize=address -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+# AddressSanitizer linking flags for Debug builds
+set(CMAKE_EXE_LINKER_FLAGS_DEBUG "-fsanitize=address")
+set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "-fsanitize=address")
 
 # Platform-specific settings
 if(WIN32)

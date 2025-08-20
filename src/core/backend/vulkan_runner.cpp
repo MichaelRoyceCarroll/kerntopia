@@ -10,6 +10,7 @@
 #include <thread>
 #include <iostream>
 #include <cstdlib>  // for setenv() and getenv()
+#include <memory>   // for std::unique_ptr
 
 // Include official Vulkan headers
 #ifdef KERNTOPIA_VULKAN_SDK_AVAILABLE
@@ -153,6 +154,7 @@ static vkWaitForFences_t vkWaitForFences = nullptr;
 static vkResetFences_t vkResetFences = nullptr;
 
 static LibraryHandle vulkan_loader_handle = nullptr;
+static std::unique_ptr<RuntimeLoader> vulkan_runtime_loader = nullptr;  // Keep loader alive!
 
 // Helper function to load instance-level functions using vkGetInstanceProcAddr
 static Result<void> LoadInstanceFunctions(VkInstance instance) {
@@ -340,8 +342,8 @@ static Result<void> LoadVulkanLoader() {
         KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
     }
     
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Creating RuntimeLoader");
-    RuntimeLoader loader;
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Creating persistent RuntimeLoader");
+    vulkan_runtime_loader = std::make_unique<RuntimeLoader>();
     
     // EMERGENCY FIX: Test with system loader first since minimal test works
     // Use same search strategy as detection but prioritize SYSTEM loader over VULKAN_SDK
@@ -363,7 +365,7 @@ static Result<void> LoadVulkanLoader() {
     
     // SECOND priority: Use ScanForLibraries for SDK/custom paths
     std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
-    auto scan_result = loader.ScanForLibraries(vulkan_patterns);
+    auto scan_result = vulkan_runtime_loader->ScanForLibraries(vulkan_patterns);
     if (scan_result) {
         for (const auto& [name, lib_info] : *scan_result) {
             // Only add if not already in system paths
@@ -381,7 +383,7 @@ static Result<void> LoadVulkanLoader() {
     
     // Try to load first successfully loadable candidate (respects search priority)
     for (const std::string& candidate : vulkan_candidates) {
-        auto load_result = loader.LoadLibrary(candidate);
+        auto load_result = vulkan_runtime_loader->LoadLibrary(candidate);
         if (load_result) {
             vulkan_loader_handle = *load_result;
             selected_loader = candidate;
@@ -400,7 +402,7 @@ static Result<void> LoadVulkanLoader() {
     // Load vkGetInstanceProcAddr - the ONLY function we can load directly via dlsym
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkGetInstanceProcAddr via dlsym");
     vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-        loader.GetSymbol(vulkan_loader_handle, "vkGetInstanceProcAddr"));
+        vulkan_runtime_loader->GetSymbol(vulkan_loader_handle, "vkGetInstanceProcAddr"));
     
     if (!vkGetInstanceProcAddr) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
@@ -1353,6 +1355,10 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     VkInstance test_instance = VK_NULL_HANDLE;
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "DEBUG: Using local stack variable for instance");
     
+    // MEMORY CORRUPTION DETECTION: Add stack canaries
+    const uint32_t STACK_CANARY = 0xDEADBEEF;
+    uint32_t canary_before = STACK_CANARY;
+    
     // Create minimal Vulkan instance for compute
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -1371,6 +1377,47 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     instance_info.enabledExtensionCount = 0;
     instance_info.ppEnabledExtensionNames = nullptr;
     
+    uint32_t canary_after = STACK_CANARY;
+    
+    // MEMORY LAYOUT VERIFICATION
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Structure sizes - VkApplicationInfo: " + 
+                       std::to_string(sizeof(VkApplicationInfo)) + 
+                       ", VkInstanceCreateInfo: " + std::to_string(sizeof(VkInstanceCreateInfo)));
+    
+    // HEX DUMP OF STRUCTURES
+    const uint8_t* app_info_bytes = reinterpret_cast<const uint8_t*>(&app_info);
+    std::string app_info_hex = "VkApplicationInfo hex: ";
+    for (size_t i = 0; i < sizeof(VkApplicationInfo); i++) {
+        char hex_buf[4];
+        snprintf(hex_buf, sizeof(hex_buf), "%02x ", app_info_bytes[i]);
+        app_info_hex += hex_buf;
+    }
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, app_info_hex);
+    
+    const uint8_t* instance_info_bytes = reinterpret_cast<const uint8_t*>(&instance_info);
+    std::string instance_info_hex = "VkInstanceCreateInfo hex: ";
+    for (size_t i = 0; i < sizeof(VkInstanceCreateInfo); i++) {
+        char hex_buf[4];
+        snprintf(hex_buf, sizeof(hex_buf), "%02x ", instance_info_bytes[i]);
+        instance_info_hex += hex_buf;
+    }
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, instance_info_hex);
+    
+    // POINTER VALIDATION
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Pointer validation - app_info.pApplicationName: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(app_info.pApplicationName)) +
+                       " (" + std::string(app_info.pApplicationName ? app_info.pApplicationName : "NULL") + ")");
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Pointer validation - app_info.pEngineName: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(app_info.pEngineName)) +
+                       " (" + std::string(app_info.pEngineName ? app_info.pEngineName : "NULL") + ")");
+                       
+    // STACK CANARY CHECK
+    if (canary_before != STACK_CANARY || canary_after != STACK_CANARY) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "STACK CORRUPTION DETECTED! Canaries: " +
+                           std::to_string(canary_before) + ", " + std::to_string(canary_after));
+        return false;
+    }
+    
     // Debug logging to isolate vkCreateInstance issue
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "About to call vkCreateInstance...");
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Function pointer vkCreateInstance: " + 
@@ -1383,7 +1430,30 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
                        std::to_string(reinterpret_cast<uintptr_t>(&test_instance)));
     
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling vkCreateInstance with local variable...");
+    
+    // CRITICAL: Verify function pointer immediately before call
+    if (!vkCreateInstance) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "FATAL: vkCreateInstance function pointer is NULL!");
+        return false;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Final function pointer check: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
+    
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LIBRARY LOADER FIX: RuntimeLoader is now persistent to prevent dlclose()!");
+    
+    // Call with maximum safety
     VkResult result = vkCreateInstance(&instance_info, nullptr, &test_instance);
+    
+    // POST-CALL VERIFICATION
+    if (canary_before != STACK_CANARY || canary_after != STACK_CANARY) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "STACK CORRUPTION AFTER CALL! Canaries: " +
+                           std::to_string(canary_before) + ", " + std::to_string(canary_after));
+        return false;
+    }
+    
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "vkCreateInstance returned: " + VulkanResultString(result));
+    
     if (result != VK_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to create Vulkan instance: " + VulkanResultString(result));
         return false;
