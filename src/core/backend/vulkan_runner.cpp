@@ -201,7 +201,7 @@ static Result<void> LoadInstanceFunctions(VkInstance instance) {
 }
 
 // Helper function to load device-level functions using vkGetDeviceProcAddr  
-static Result<void> LoadDeviceFunctions(VkDevice device) {
+static Result<void> LoadDeviceFunctions(VkInstance instance, VkDevice device) {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadDeviceFunctions: Loading device-level functions");
     
     if (!vkGetInstanceProcAddr) {
@@ -211,7 +211,7 @@ static Result<void> LoadDeviceFunctions(VkDevice device) {
     
     // Get vkGetDeviceProcAddr from instance
     PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
-        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkGetDeviceProcAddr"));
+        vkGetInstanceProcAddr(instance, "vkGetDeviceProcAddr"));
     
     if (!vkGetDeviceProcAddr) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
@@ -1539,7 +1539,7 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
     }
     
     // Load device-level functions now that we have a VkDevice
-    auto load_device_result = LoadDeviceFunctions(device_->logical_device);
+    auto load_device_result = LoadDeviceFunctions(context_->instance, device_->logical_device);
     if (!load_device_result) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to load Vulkan device functions: " + load_device_result.GetError().message);
         return false;
