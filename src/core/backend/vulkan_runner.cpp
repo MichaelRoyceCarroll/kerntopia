@@ -710,7 +710,18 @@ bool VulkanBuffer::CreateBuffer() {
 }
 
 void VulkanBuffer::DestroyBuffer() {
+    // Safe to call multiple times - check if already destroyed
+    if (buffer_ == nullptr && device_memory_ == nullptr) {
+        return; // Already destroyed
+    }
+    
     if (!device_ || !device_->logical_device) {
+        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "VulkanBuffer::DestroyBuffer - Invalid device, clearing handles");
+        // Device already destroyed, just clear our handles
+        buffer_ = nullptr;
+        device_memory_ = nullptr;
+        mapped_ptr_ = nullptr;
+        is_mapped_ = false;
         return;
     }
     
@@ -1599,53 +1610,131 @@ bool VulkanKernelRunner::InitializeVulkan(const DeviceInfo& device_info) {
 void VulkanKernelRunner::ShutdownVulkan() {
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Shutting down Vulkan backend");
     
-    // Clear bindings
+    // Phase 1: Ensure all GPU work is complete before cleanup
+    if (device_ && device_->logical_device && device_->compute_queue && vkQueueWaitIdle) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Waiting for GPU work to complete...");
+        VkResult result = vkQueueWaitIdle(device_->compute_queue);
+        if (result != VK_SUCCESS) {
+            KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, 
+                "vkQueueWaitIdle failed during shutdown: " + std::to_string(result));
+        } else {
+            KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "GPU work completed successfully");
+        }
+    }
+    
+    // Phase 2: Force buffer cleanup while device is still valid to prevent access after destruction
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Force-destroying bound resources while device is valid...");
+    
+    // Important: Call DestroyBuffer explicitly on all VulkanBuffers while device is still valid
+    for (auto& [binding, buffer] : bound_buffers_) {
+        if (buffer) {
+            auto vulkan_buffer = std::dynamic_pointer_cast<VulkanBuffer>(buffer);
+            if (vulkan_buffer) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Force-destroying buffer at binding " + std::to_string(binding));
+                // Call DestroyBuffer directly to clean up while device is valid
+                vulkan_buffer->DestroyBuffer();
+            }
+        }
+    }
+    
+    // Now safe to clear the containers
     bound_buffers_.clear();
     bound_textures_.clear();
     parameter_data_.clear();
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Resource bindings cleared and force-destroyed");
     
-    // Destroy Vulkan resources in reverse creation order
+    // Phase 3: Destroy Vulkan resources in reverse creation order with enhanced error checking
     if (device_ && device_->logical_device) {
-        // Destroy pipeline resources
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Starting Vulkan resource destruction...");
+        // Destroy pipeline resources with detailed logging and null checks
         if (pipeline_) {
+            KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying pipeline resources...");
+            
             if (pipeline_->descriptor_pool != VK_NULL_HANDLE) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying descriptor pool...");
                 vkDestroyDescriptorPool(device_->logical_device, pipeline_->descriptor_pool, nullptr);
+                pipeline_->descriptor_pool = VK_NULL_HANDLE;
             }
+            
             if (pipeline_->pipeline != VK_NULL_HANDLE) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying compute pipeline...");
                 vkDestroyPipeline(device_->logical_device, pipeline_->pipeline, nullptr);
+                pipeline_->pipeline = VK_NULL_HANDLE;
             }
+            
             if (pipeline_->pipeline_layout != VK_NULL_HANDLE) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying pipeline layout...");
                 vkDestroyPipelineLayout(device_->logical_device, pipeline_->pipeline_layout, nullptr);
+                pipeline_->pipeline_layout = VK_NULL_HANDLE;
             }
+            
             if (pipeline_->descriptor_set_layout != VK_NULL_HANDLE) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying descriptor set layout...");
                 vkDestroyDescriptorSetLayout(device_->logical_device, pipeline_->descriptor_set_layout, nullptr);
+                pipeline_->descriptor_set_layout = VK_NULL_HANDLE;
             }
+            
             if (pipeline_->shader_module != VK_NULL_HANDLE) {
+                KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying shader module...");
                 vkDestroyShaderModule(device_->logical_device, pipeline_->shader_module, nullptr);
+                pipeline_->shader_module = VK_NULL_HANDLE;
             }
+            
+            KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Pipeline resources destroyed successfully");
         }
         
-        // Destroy command pool
+        // Destroy command pool with detailed logging
         if (command_pool_ && command_pool_->command_pool != VK_NULL_HANDLE) {
+            KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying command pool...");
             vkDestroyCommandPool(device_->logical_device, command_pool_->command_pool, nullptr);
+            command_pool_->command_pool = VK_NULL_HANDLE;
+            KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Command pool destroyed successfully");
         }
         
-        // Destroy logical device
+        // Destroy logical device with final wait and logging
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying logical device...");
         vkDestroyDevice(device_->logical_device, nullptr);
+        device_->logical_device = VK_NULL_HANDLE;
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Logical device destroyed successfully");
     }
     
-    // Destroy instance
+    // Destroy instance with logging
     if (context_ && context_->instance != VK_NULL_HANDLE) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Destroying Vulkan instance...");
         vkDestroyInstance(context_->instance, nullptr);
+        context_->instance = VK_NULL_HANDLE;
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Vulkan instance destroyed successfully");
     }
     
-    // Release resources
-    query_pool_.reset();
-    command_pool_.reset();
-    pipeline_.reset();
-    device_.reset();
-    context_.reset();
+    // Phase 4: Release smart pointer resources in reverse order with logging
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing smart pointer resources...");
     
+    if (query_pool_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing query pool...");
+        query_pool_.reset();
+    }
+    
+    if (command_pool_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing command pool...");
+        command_pool_.reset();
+    }
+    
+    if (pipeline_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing pipeline...");
+        pipeline_.reset();
+    }
+    
+    if (device_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing device...");
+        device_.reset();
+    }
+    
+    if (context_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Releasing context...");
+        context_.reset();
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "All resources released successfully");
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Vulkan backend shutdown complete");
 }
 

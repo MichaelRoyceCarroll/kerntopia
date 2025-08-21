@@ -33,6 +33,7 @@ public:
     // Vulkan-specific methods  
     void* GetBuffer() const { return reinterpret_cast<void*>(buffer_); }
     void* GetDeviceMemory() const { return reinterpret_cast<void*>(device_memory_); }
+    void DestroyBuffer();
     
 private:
     VulkanDevice* device_;
@@ -48,7 +49,6 @@ private:
     bool is_mapped_ = false;
     
     bool CreateBuffer();
-    void DestroyBuffer();
 };
 
 /**
