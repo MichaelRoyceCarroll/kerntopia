@@ -22,9 +22,12 @@ bool SystemInterrogator::cache_valid_ = false;
 
 Result<SystemInfo> SystemInterrogator::GetSystemInfo() {
     if (cache_valid_ && cached_system_info_) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "SystemInterrogator: Using cached system info");
         SystemInfo info_copy = *cached_system_info_;
         return KERNTOPIA_SUCCESS(info_copy);
     }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "SystemInterrogator: Cache miss - performing full system interrogation");
     
     // Use singleton RuntimeLoader
     RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
@@ -48,22 +51,30 @@ Result<SystemInfo> SystemInterrogator::GetSystemInfo() {
 }
 
 Result<RuntimeInfo> SystemInterrogator::GetRuntimeInfo(RuntimeType runtime) {
+    // Use cached system info instead of direct detection to avoid redundant calls
+    auto system_info_result = GetSystemInfo();
+    if (!system_info_result) {
+        return KERNTOPIA_RESULT_ERROR(RuntimeInfo, ErrorCategory::SYSTEM, ErrorCode::SYSTEM_INTERROGATION_FAILED,
+                                     "Failed to get system information");
+    }
+    
+    const SystemInfo& info = system_info_result.GetValue();
     switch (runtime) {
         case RuntimeType::CUDA:
-            return KERNTOPIA_SUCCESS(DetectCudaRuntime());
+            return KERNTOPIA_SUCCESS(info.cuda_runtime);
         case RuntimeType::VULKAN:
-            return KERNTOPIA_SUCCESS(DetectVulkanRuntime());
+            return KERNTOPIA_SUCCESS(info.vulkan_runtime);
         case RuntimeType::SLANG:
-            return KERNTOPIA_SUCCESS(DetectSlangRuntime());
+            return KERNTOPIA_SUCCESS(info.slang_runtime);
         case RuntimeType::CPU:
             {
-                RuntimeInfo info;
-                info.available = true;
-                info.name = "CPU (Software)";
-                info.version = "1.0.0";
-                info.primary_library_path = "built-in";
-                info.capabilities.precompiled_kernels = true;
-                return KERNTOPIA_SUCCESS(info);
+                RuntimeInfo cpu_info;
+                cpu_info.available = true;
+                cpu_info.name = "CPU (Software)";
+                cpu_info.version = "1.0.0";
+                cpu_info.primary_library_path = "built-in";
+                cpu_info.capabilities.precompiled_kernels = true;
+                return KERNTOPIA_SUCCESS(cpu_info);
             }
         default:
             return KERNTOPIA_RESULT_ERROR(RuntimeInfo, ErrorCategory::VALIDATION,
@@ -73,8 +84,23 @@ Result<RuntimeInfo> SystemInterrogator::GetRuntimeInfo(RuntimeType runtime) {
 }
 
 bool SystemInterrogator::IsRuntimeAvailable(RuntimeType runtime) {
-    auto result = GetRuntimeInfo(runtime);
-    return result && result->available;
+    // Use cached system info instead of direct detection to avoid redundant calls
+    auto system_info_result = GetSystemInfo();
+    if (!system_info_result) {
+        return false;
+    }
+    
+    const SystemInfo& info = system_info_result.GetValue();
+    switch (runtime) {
+        case RuntimeType::CUDA:
+            return info.cuda_runtime.available;
+        case RuntimeType::VULKAN:
+            return info.vulkan_runtime.available;
+        case RuntimeType::SLANG:
+            return info.slang_runtime.available;
+        default:
+            return false;
+    }
 }
 
 Result<void> SystemInterrogator::RefreshRuntimes() {
