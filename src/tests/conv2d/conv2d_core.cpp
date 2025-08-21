@@ -270,14 +270,25 @@ Result<void> Conv2dCore::AllocateDeviceMemory() {
 }
 
 void Conv2dCore::SetupGaussianFilter() {
-    // 3x3 Gaussian blur filter (approximation of 5x5)
+    // Pack 3x3 Gaussian kernel into 4x4 matrix (row-major layout)
+    // Row 0: [1/16, 2/16, 1/16, 0]
+    constants_.filter_kernel[0][0] = 1.0f/16.0f; constants_.filter_kernel[0][1] = 2.0f/16.0f; 
+    constants_.filter_kernel[0][2] = 1.0f/16.0f; constants_.filter_kernel[0][3] = 0.0f;
+    
+    // Row 1: [2/16, 4/16, 2/16, 0] 
+    constants_.filter_kernel[1][0] = 2.0f/16.0f; constants_.filter_kernel[1][1] = 4.0f/16.0f;
+    constants_.filter_kernel[1][2] = 2.0f/16.0f; constants_.filter_kernel[1][3] = 0.0f;
+    
+    // Row 2: [1/16, 2/16, 1/16, 0]
+    constants_.filter_kernel[2][0] = 1.0f/16.0f; constants_.filter_kernel[2][1] = 2.0f/16.0f;
+    constants_.filter_kernel[2][2] = 1.0f/16.0f; constants_.filter_kernel[2][3] = 0.0f;
+    
+    // Row 3: [0, 0, 0, 0] - unused row
+    constants_.filter_kernel[3][0] = 0.0f; constants_.filter_kernel[3][1] = 0.0f;
+    constants_.filter_kernel[3][2] = 0.0f; constants_.filter_kernel[3][3] = 0.0f;
+    
     constants_.image_width = image_width_;
     constants_.image_height = image_height_;
-    
-    // Normalized 3x3 Gaussian kernel
-    constants_.filter_kernel[0][0] = 1.0f/16.0f; constants_.filter_kernel[0][1] = 2.0f/16.0f; constants_.filter_kernel[0][2] = 1.0f/16.0f;
-    constants_.filter_kernel[1][0] = 2.0f/16.0f; constants_.filter_kernel[1][1] = 4.0f/16.0f; constants_.filter_kernel[1][2] = 2.0f/16.0f;
-    constants_.filter_kernel[2][0] = 1.0f/16.0f; constants_.filter_kernel[2][1] = 2.0f/16.0f; constants_.filter_kernel[2][2] = 1.0f/16.0f;
     
     KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Gaussian filter setup complete");
 }
@@ -295,6 +306,20 @@ Result<void> Conv2dCore::CopyToDevice() {
     }
     
     // Upload constants
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "Constants buffer debug - size: " + std::to_string(sizeof(Constants)) + 
+                       " bytes, width: " + std::to_string(constants_.image_width) + 
+                       ", height: " + std::to_string(constants_.image_height));
+    
+    // Debug: Print filter kernel values (4x4 matrix)
+    std::string filter_debug = "Filter kernel (4x4 matrix): ";
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            filter_debug += std::to_string(constants_.filter_kernel[y][x]) + " ";
+        }
+        if (y < 3) filter_debug += "/ ";
+    }
+    KERNTOPIA_LOG_DEBUG(LogComponent::TEST, filter_debug);
+    
     result = d_constants_->UploadData(&constants_, sizeof(Constants));
     if (!result) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
@@ -348,8 +373,9 @@ Result<void> Conv2dCore::LoadKernel() {
                                      "Failed to read kernel file: " + kernel_path);
     }
     
-    // Load kernel into the runner
-    auto load_result = kernel_runner_->LoadKernel(bytecode, "computeMain");
+    // Load kernel into the runner - use backend-appropriate entry point
+    std::string entry_point = (config_.target_backend == Backend::CUDA) ? "computeMain" : "main";
+    auto load_result = kernel_runner_->LoadKernel(bytecode, entry_point);
     if (!load_result) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::KERNEL_LOAD_FAILED,
                                      "Failed to load kernel: " + load_result.GetError().message);

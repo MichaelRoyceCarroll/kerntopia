@@ -6,7 +6,11 @@
 
 // Entry point for compute shader
 [numthreads(256, 1, 1)]
+#ifdef CUDA_BACKEND
 void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
+#else
+void main(uint3 dispatchThreadID : SV_DispatchThreadID)
+#endif
 {
     // Get current thread index
     uint index = dispatchThreadID.x;

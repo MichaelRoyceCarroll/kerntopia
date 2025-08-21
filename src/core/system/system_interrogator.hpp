@@ -84,8 +84,7 @@ private:
                                    std::string& checksum, 
                                    std::string& last_modified);
     
-    // Runtime loader for library detection
-    static std::unique_ptr<RuntimeLoader> runtime_loader_;
+    // Note: RuntimeLoader is now a singleton, accessed via RuntimeLoader::GetInstance()
     
     // Cached results to avoid repeated detection
     static std::unique_ptr<SystemInfo> cached_system_info_;

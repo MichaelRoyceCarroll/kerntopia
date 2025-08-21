@@ -28,8 +28,14 @@ set(PLATFORM_INFO "${OS_NAME}-${OS_PLATFORM}")
 # Generate appropriate flags based on backend
 if(${BACKEND} STREQUAL "cuda")
     set(PROFILE_FLAG "-capability")
+    set(ENTRY_POINT "computeMain")
+    set(EXTRA_FLAGS_JSON ", \"-D\", \"CUDA_BACKEND\"")
+    set(EXTRA_FLAGS "-D CUDA_BACKEND")
 else()
     set(PROFILE_FLAG "-profile")
+    set(ENTRY_POINT "main")
+    set(EXTRA_FLAGS_JSON "")
+    set(EXTRA_FLAGS "")
 endif()
 
 # Generate JSON metadata
@@ -40,7 +46,7 @@ set(METADATA_CONTENT "{
   \"backend\": \"${BACKEND}\",
   \"profile\": \"${PROFILE}\",
   \"target\": \"${TARGET}\",
-  \"slang_flags\": [\"-target\", \"${TARGET}\", \"${PROFILE_FLAG}\", \"${PROFILE}\", \"-stage\", \"compute\", \"-entry\", \"computeMain\"],
+  \"slang_flags\": [\"-target\", \"${TARGET}\", \"${PROFILE_FLAG}\", \"${PROFILE}\", \"-stage\", \"compute\", \"-entry\", \"${ENTRY_POINT}\"${EXTRA_FLAGS_JSON}],
   \"source_file\": \"${SOURCE_FILE}\",
   \"output_file\": \"${OUTPUT_FILE}\",
   \"input_hash\": \"${INPUT_HASH}\",
@@ -51,7 +57,7 @@ set(METADATA_CONTENT "{
     \"platform\": \"${PLATFORM_INFO}\"
   },
   \"educational_notes\": {
-    \"manual_compilation\": \"slangc -target ${TARGET} ${PROFILE_FLAG} ${PROFILE} -stage compute -entry computeMain -o ${OUTPUT_FILE} ${SOURCE_FILE}\",
+    \"manual_compilation\": \"slangc -target ${TARGET} ${PROFILE_FLAG} ${PROFILE} -stage compute -entry ${ENTRY_POINT} ${EXTRA_FLAGS} -o ${OUTPUT_FILE} ${SOURCE_FILE}\",
     \"target_description\": \"${TARGET} bytecode for ${BACKEND} backend with ${PROFILE} capability\"
   }
 }")

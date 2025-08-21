@@ -56,9 +56,9 @@ private:
     
     // Constants buffer structure (matches SLANG cbuffer)
     struct Constants {
+        float filter_kernel[4][4];  // 4x4 matrix with 3x3 filter packed in first 3x3 (row-major)
         uint32_t image_width;
         uint32_t image_height;
-        float filter_kernel[3][3];  // 5x5 Gaussian stored as 3x3 for SLANG compatibility
     };
     
     Constants constants_;

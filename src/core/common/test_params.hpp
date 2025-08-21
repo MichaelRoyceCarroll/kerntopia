@@ -317,6 +317,18 @@ public:
                int_params.count(name) > 0 || 
                string_params.count(name) > 0;
     }
+    
+    /**
+     * @brief Get output filename prefix for disambiguating test results
+     * 
+     * @return Prefix string like "CUDA_cuda_sm_7_0_ptx_Device_0"
+     */
+    std::string GetOutputPrefix() const {
+        return GetBackendName() + "_" + 
+               GetSlangProfileName() + "_" + 
+               GetSlangTargetName() + "_Device_" + 
+               std::to_string(device_id);
+    }
 };
 
 // Template specializations for GetParam

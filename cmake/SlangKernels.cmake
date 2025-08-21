@@ -43,10 +43,11 @@ function(compile_slang_kernel KERNEL_NAME KERNEL_SOURCE_DIR)
         
         # Build slangc command  
         # Use -profile for Vulkan/DirectX, -capability for CUDA
+        # Backend-specific entry points: CUDA uses computeMain, others use main
         if(${BACKEND} STREQUAL "cuda")
-            set(SLANG_FLAGS -target ${TARGET} -capability ${PROFILE} -stage compute -entry computeMain -o ${OUTPUT_PATH})
+            set(SLANG_FLAGS -target ${TARGET} -capability ${PROFILE} -stage compute -entry computeMain -D CUDA_BACKEND -o ${OUTPUT_PATH})
         else()
-            set(SLANG_FLAGS -target ${TARGET} -profile ${PROFILE} -stage compute -entry computeMain -o ${OUTPUT_PATH})
+            set(SLANG_FLAGS -target ${TARGET} -profile ${PROFILE} -stage compute -entry main -o ${OUTPUT_PATH})
         endif()
         
         message(STATUS "Creating build rule for: ${OUTPUT_PATH}")

@@ -154,7 +154,7 @@ static vkWaitForFences_t vkWaitForFences = nullptr;
 static vkResetFences_t vkResetFences = nullptr;
 
 static LibraryHandle vulkan_loader_handle = nullptr;
-static std::unique_ptr<RuntimeLoader> vulkan_runtime_loader = nullptr;  // Keep loader alive!
+// Note: Using singleton RuntimeLoader to maintain library persistence across backends
 
 // Helper function to load instance-level functions using vkGetInstanceProcAddr
 static Result<void> LoadInstanceFunctions(VkInstance instance) {
@@ -342,8 +342,8 @@ static Result<void> LoadVulkanLoader() {
         KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
     }
     
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Creating persistent RuntimeLoader");
-    vulkan_runtime_loader = std::make_unique<RuntimeLoader>();
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Using singleton RuntimeLoader");
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
     
     // EMERGENCY FIX: Test with system loader first since minimal test works
     // Use same search strategy as detection but prioritize SYSTEM loader over VULKAN_SDK
@@ -365,7 +365,7 @@ static Result<void> LoadVulkanLoader() {
     
     // SECOND priority: Use ScanForLibraries for SDK/custom paths
     std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
-    auto scan_result = vulkan_runtime_loader->ScanForLibraries(vulkan_patterns);
+    auto scan_result = runtime_loader.ScanForLibraries(vulkan_patterns);
     if (scan_result) {
         for (const auto& [name, lib_info] : *scan_result) {
             // Only add if not already in system paths
@@ -383,7 +383,7 @@ static Result<void> LoadVulkanLoader() {
     
     // Try to load first successfully loadable candidate (respects search priority)
     for (const std::string& candidate : vulkan_candidates) {
-        auto load_result = vulkan_runtime_loader->LoadLibrary(candidate);
+        auto load_result = runtime_loader.LoadLibrary(candidate);
         if (load_result) {
             vulkan_loader_handle = *load_result;
             selected_loader = candidate;
@@ -402,7 +402,7 @@ static Result<void> LoadVulkanLoader() {
     // Load vkGetInstanceProcAddr - the ONLY function we can load directly via dlsym
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkGetInstanceProcAddr via dlsym");
     vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-        vulkan_runtime_loader->GetSymbol(vulkan_loader_handle, "vkGetInstanceProcAddr"));
+        runtime_loader.GetSymbol(vulkan_loader_handle, "vkGetInstanceProcAddr"));
     
     if (!vkGetInstanceProcAddr) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
@@ -859,10 +859,31 @@ Result<void> VulkanKernelRunner::LoadKernel(const std::vector<uint8_t>& bytecode
 }
 
 Result<void> VulkanKernelRunner::CreateComputePipeline() {
-    if (!device_ || !device_->logical_device || !pipeline_ || pipeline_->shader_module == VK_NULL_HANDLE) {
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Starting pipeline creation");
+    
+    // Detailed prerequisite validation
+    if (!device_) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: device_ is null");
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
-                                     "Invalid device or shader module for pipeline creation");
+                                     "Device is null");
     }
+    if (!device_->logical_device) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: logical_device is null");
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Logical device is null");
+    }
+    if (!pipeline_) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: pipeline_ is null");
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Pipeline structure is null");
+    }
+    if (pipeline_->shader_module == VK_NULL_HANDLE) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: shader_module is VK_NULL_HANDLE");
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Shader module is invalid");
+    }
+    
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "CreateComputePipeline: All prerequisites validated, entry point: " + entry_point_);
     
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Creating Vulkan compute pipeline");
     
@@ -909,11 +930,14 @@ Result<void> VulkanKernelRunner::CreateComputePipeline() {
     layout_info.bindingCount = 3;
     layout_info.pBindings = bindings;
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Creating descriptor set layout with 3 bindings");
     VkResult result = vkCreateDescriptorSetLayout(device_->logical_device, &layout_info, nullptr, &pipeline_->descriptor_set_layout);
     if (result != VK_SUCCESS) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: Failed to create descriptor set layout: " + VulkanResultString(result));
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
                                      "Failed to create descriptor set layout: " + VulkanResultString(result));
     }
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Descriptor set layout created successfully");
     
     // Create pipeline layout
     VkPipelineLayoutCreateInfo pipeline_layout_info = {};
@@ -923,13 +947,17 @@ Result<void> VulkanKernelRunner::CreateComputePipeline() {
     pipeline_layout_info.pushConstantRangeCount = 0;
     pipeline_layout_info.pPushConstantRanges = nullptr;
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Creating pipeline layout");
     result = vkCreatePipelineLayout(device_->logical_device, &pipeline_layout_info, nullptr, &pipeline_->pipeline_layout);
     if (result != VK_SUCCESS) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: Failed to create pipeline layout: " + VulkanResultString(result));
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
                                      "Failed to create pipeline layout: " + VulkanResultString(result));
     }
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Pipeline layout created successfully");
     
     // Create compute pipeline
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Setting up shader stage with entry point: " + entry_point_);
     VkPipelineShaderStageCreateInfo shader_stage = {};
     shader_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shader_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -937,6 +965,7 @@ Result<void> VulkanKernelRunner::CreateComputePipeline() {
     shader_stage.pName = entry_point_.c_str();
     shader_stage.pSpecializationInfo = nullptr;
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "CreateComputePipeline: Setting up compute pipeline create info");
     VkComputePipelineCreateInfo pipeline_info = {};
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.stage = shader_stage;
@@ -944,8 +973,17 @@ Result<void> VulkanKernelRunner::CreateComputePipeline() {
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
     
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "CreateComputePipeline: About to call vkCreateComputePipelines with entry point: " + entry_point_);
     result = vkCreateComputePipelines(device_->logical_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_->pipeline);
+    
+    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "CreateComputePipeline: vkCreateComputePipelines returned: " + VulkanResultString(result) + " (" + std::to_string(result) + ")");
+    
     if (result != VK_SUCCESS) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "CreateComputePipeline: DETAILED ERROR - vkCreateComputePipelines failed");
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "  Entry point: " + entry_point_);
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "  Shader module valid: " + std::string(pipeline_->shader_module != VK_NULL_HANDLE ? "YES" : "NO"));
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "  Pipeline layout valid: " + std::string(pipeline_->pipeline_layout != VK_NULL_HANDLE ? "YES" : "NO"));
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "  Descriptor set layout valid: " + std::string(pipeline_->descriptor_set_layout != VK_NULL_HANDLE ? "YES" : "NO"));
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
                                      "Failed to create compute pipeline: " + VulkanResultString(result));
     }

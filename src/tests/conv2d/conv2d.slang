@@ -6,7 +6,11 @@
 
 // Entry point for 2D compute shader
 [numthreads(16, 16, 1)]
+#ifdef CUDA_BACKEND
 void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
+#else
+void main(uint3 dispatchThreadID : SV_DispatchThreadID)
+#endif
 {
     // Get current pixel coordinates
     uint2 coord = dispatchThreadID.xy;
@@ -28,7 +32,7 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
                 clamp(int(coord.y) + dy, 0, int(image_height) - 1)
             );
             
-            // Get filter weight and input pixel
+            // Get filter weight from 4x4 matrix (3x3 kernel packed in first 3x3)
             float weight = filter_kernel[dy + 1][dx + 1];
             uint input_index = sample_coord.y * image_width + sample_coord.x;
             float4 pixel = input_image[input_index];
@@ -50,9 +54,9 @@ RWStructuredBuffer<float4> output_image;
 // 3x3 convolution kernel (e.g., edge detection, blur)
 cbuffer Constants
 {
+    float4x4 filter_kernel;  // 4x4 matrix with 3x3 filter packed in first 3x3
     uint image_width;
     uint image_height;
-    float filter_kernel[3][3];  // 3x3 filter weights
 }
 
 // Educational Notes:

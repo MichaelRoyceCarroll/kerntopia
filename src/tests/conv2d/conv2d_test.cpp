@@ -48,7 +48,7 @@ protected:
         }
         
         // Write output image for verification
-        std::string output_path = "conv2d_output.png";
+        std::string output_path = config_.GetOutputPrefix() + "_conv2d_output.png";
         auto write_result = conv2d_core.WriteOut(output_path);
         if (!write_result) {
             return KERNTOPIA_RESULT_ERROR(KernelResult, ErrorCategory::IMAGING, ErrorCode::IMAGE_SAVE_FAILED,

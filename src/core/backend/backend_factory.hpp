@@ -239,7 +239,7 @@ private:
     Result<std::shared_ptr<IKernelRunnerFactory>> CreateCpuFactory();
     
     // Runtime library management
-    std::unique_ptr<RuntimeLoader> runtime_loader_;
+    // Note: RuntimeLoader is now a singleton, accessed via RuntimeLoader::GetInstance()
     
     // Backend registry
     std::map<Backend, BackendInfo> backend_info_;

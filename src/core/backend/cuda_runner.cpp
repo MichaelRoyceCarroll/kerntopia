@@ -641,7 +641,7 @@ static Result<void> InitializeCudaDriver() {
     }
     
     // Load the CUDA driver library using the path discovered by SystemInterrogator
-    RuntimeLoader loader;
+    RuntimeLoader& loader = RuntimeLoader::GetInstance();
     
     // Try the primary library path first, then fall back to library search
     std::vector<std::string> cuda_paths;
@@ -702,17 +702,45 @@ static Result<void> InitializeCudaDriver() {
     cu_GetErrorString = reinterpret_cast<cuGetErrorString_t>(loader.GetSymbol(cuda_driver_handle, "cuGetErrorString"));
     
     // Verify critical functions were loaded
-    if (!cu_Init || !cu_DeviceGetCount || !cu_DeviceGet || !cu_CtxCreate || !cu_ModuleLoadData) {
+    if (!cu_Init || !cu_DeviceGetCount || !cu_DeviceGet || !cu_CtxCreate || !cu_ModuleLoadData || !cu_GetErrorString) {
+        std::string missing_functions;
+        if (!cu_Init) missing_functions += "cuInit ";
+        if (!cu_DeviceGetCount) missing_functions += "cuDeviceGetCount ";
+        if (!cu_DeviceGet) missing_functions += "cuDeviceGet ";
+        if (!cu_CtxCreate) missing_functions += "cuCtxCreate ";
+        if (!cu_ModuleLoadData) missing_functions += "cuModuleLoadData ";
+        if (!cu_GetErrorString) missing_functions += "cuGetErrorString ";
+        
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
-                                     "Failed to load required CUDA driver functions");
+                                     "Failed to load required CUDA driver functions: " + missing_functions);
     }
     
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "All critical CUDA functions loaded successfully");
+    
     // Initialize CUDA
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling cuInit(0)...");
     int result = cu_Init(0);
     if (result != CUDA_SUCCESS) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
-                                     "CUDA initialization failed");
+        // Get detailed error information
+        std::string error_msg = "CUDA initialization failed with error code " + std::to_string(result);
+        
+        if (cu_GetErrorString) {
+            const char* error_str = nullptr;
+            int string_result = cu_GetErrorString(result, &error_str);
+            if (string_result == CUDA_SUCCESS && error_str) {
+                error_msg += ": " + std::string(error_str);
+            } else {
+                error_msg += " (failed to get error string)";
+            }
+        } else {
+            error_msg += " (cuGetErrorString not available)";
+        }
+        
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, error_msg);
+        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE, error_msg);
     }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "cuInit(0) completed successfully");
     
     return KERNTOPIA_VOID_SUCCESS();
 }

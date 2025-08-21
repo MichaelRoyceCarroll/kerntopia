@@ -16,7 +16,7 @@
 namespace kerntopia {
 
 // Static member definitions
-std::unique_ptr<RuntimeLoader> SystemInterrogator::runtime_loader_ = nullptr;
+// Note: RuntimeLoader is now a singleton, no static member needed
 std::unique_ptr<SystemInfo> SystemInterrogator::cached_system_info_ = nullptr;
 bool SystemInterrogator::cache_valid_ = false;
 
@@ -26,10 +26,8 @@ Result<SystemInfo> SystemInterrogator::GetSystemInfo() {
         return KERNTOPIA_SUCCESS(info_copy);
     }
     
-    // Initialize runtime loader if needed
-    if (!runtime_loader_) {
-        runtime_loader_ = std::make_unique<RuntimeLoader>();
-    }
+    // Use singleton RuntimeLoader
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
     
     SystemInfo info;
     
@@ -89,10 +87,13 @@ RuntimeInfo SystemInterrogator::DetectCudaRuntime() {
     RuntimeInfo info;
     info.name = "CUDA";
     
+    // Use singleton RuntimeLoader
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    
     // STEP 1: RuntimeLoader dynamic search FIRST (respects LD_LIBRARY_PATH, consistent with Vulkan)
     // Target only CUDA driver library, exclude SDK development libraries
     std::vector<std::string> cuda_driver_patterns = {"libcuda.so"};
-    auto scan_result = runtime_loader_->ScanForLibraries(cuda_driver_patterns);
+    auto scan_result = runtime_loader.ScanForLibraries(cuda_driver_patterns);
     
     std::string found_driver_path;
     LibraryInfo driver_info;
@@ -156,7 +157,7 @@ RuntimeInfo SystemInterrogator::DetectCudaRuntime() {
     
     // Also check for CUDA runtime (cudart) for additional context
     std::vector<std::string> cudart_patterns = {"cudart"};
-    auto cudart_scan_result = runtime_loader_->ScanForLibraries(cudart_patterns);
+    auto cudart_scan_result = runtime_loader.ScanForLibraries(cudart_patterns);
     std::string found_runtime_path;
     
     if (cudart_scan_result && !cudart_scan_result->empty()) {
@@ -220,9 +221,12 @@ RuntimeInfo SystemInterrogator::DetectVulkanRuntime() {
     RuntimeInfo info;
     info.name = "Vulkan";
     
+    // Use singleton RuntimeLoader
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    
     // Search for Vulkan libraries using existing pattern
     std::vector<std::string> vulkan_patterns = {"vulkan"};
-    auto scan_result = runtime_loader_->ScanForLibraries(vulkan_patterns);
+    auto scan_result = runtime_loader.ScanForLibraries(vulkan_patterns);
     
     if (!scan_result || scan_result->empty()) {
         info.available = false;
@@ -267,6 +271,9 @@ RuntimeInfo SystemInterrogator::DetectSlangRuntime() {
     RuntimeInfo info;
     info.name = "SLANG";
     
+    // Use singleton RuntimeLoader
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    
     // **ENHANCED DETECTION**: Both executable AND shared library
     
     // 1. Detect slangc executable (compiler)
@@ -304,7 +311,7 @@ RuntimeInfo SystemInterrogator::DetectSlangRuntime() {
     
     // 2. Detect SLANG shared library (runtime) - look for actual libslang, not glslang
     std::vector<std::string> slang_lib_patterns = {"libslang"};
-    auto lib_scan_result = runtime_loader_->ScanForLibraries(slang_lib_patterns);
+    auto lib_scan_result = runtime_loader.ScanForLibraries(slang_lib_patterns);
     
     // Also check build directory for libslang.so
     if (!lib_scan_result || lib_scan_result->empty()) {

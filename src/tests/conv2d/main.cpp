@@ -131,7 +131,7 @@ int main(int argc, char* argv[]) {
     }
     
     const std::string input_path = kerntopia::PathUtils::GetAssetsDirectory() + "images/StockSnap_2Q79J32WX2_512x512.png";
-    const std::string output_path = "conv2d_output.png";
+    const std::string output_path = config.GetOutputPrefix() + "_conv2d_output.png";
     
     std::cout << "Configuration: " << config.GetBackendName() 
               << " (" << config.GetSlangProfileName() << " -> " 

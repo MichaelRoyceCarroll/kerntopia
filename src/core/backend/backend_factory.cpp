@@ -125,8 +125,8 @@ Result<void> BackendFactory::InitializeImpl() {
         return KERNTOPIA_VOID_SUCCESS();
     }
     
-    // Initialize runtime loader
-    runtime_loader_ = std::make_unique<RuntimeLoader>();
+    // Initialize runtime loader (now using singleton)
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
     
     // Detect all backends
     auto detect_result = DetectBackends();
@@ -146,7 +146,7 @@ void BackendFactory::ShutdownImpl() {
     
     factories_.clear();
     backend_info_.clear();
-    runtime_loader_.reset();
+    // Note: RuntimeLoader is now a singleton, no manual cleanup needed
     
     initialized_ = false;
     LOG_BACKEND_INFO("BackendFactory shut down");
@@ -253,7 +253,8 @@ Result<BackendInfo> BackendFactory::DetectCudaBackend() {
     
     // Search for CUDA runtime libraries
     std::vector<std::string> cuda_patterns = {"cudart", "nvcuda"};
-    auto scan_result = runtime_loader_->ScanForLibraries(cuda_patterns);
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    auto scan_result = runtime_loader.ScanForLibraries(cuda_patterns);
     
     if (!scan_result || scan_result->empty()) {
         info.available = false;
@@ -293,7 +294,8 @@ Result<BackendInfo> BackendFactory::DetectVulkanBackend() {
     
     // Search for Vulkan libraries
     std::vector<std::string> vulkan_patterns = {"vulkan"};
-    auto scan_result = runtime_loader_->ScanForLibraries(vulkan_patterns);
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    auto scan_result = runtime_loader.ScanForLibraries(vulkan_patterns);
     
     if (!scan_result || scan_result->empty()) {
         info.available = false;
@@ -469,7 +471,8 @@ SlangCompilerInfo BackendFactory::DetectSlangCompiler() {
     
     // Search for SLANG runtime library
     std::vector<std::string> slang_lib_patterns = {"slang", "libslang"};
-    auto scan_result = runtime_loader_->ScanForLibraries(slang_lib_patterns);
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    auto scan_result = runtime_loader.ScanForLibraries(slang_lib_patterns);
     
     if (scan_result && !scan_result->empty()) {
         auto& libraries = *scan_result;

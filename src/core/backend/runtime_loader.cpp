@@ -19,7 +19,14 @@
 namespace kerntopia {
 
 RuntimeLoader::RuntimeLoader() {
-    LOG_SYSTEM_DEBUG("RuntimeLoader initialized");
+    LOG_SYSTEM_DEBUG("RuntimeLoader initialized (Singleton)");
+}
+
+RuntimeLoader& RuntimeLoader::GetInstance() {
+    // Static local variable ensures thread-safe, one-time initialization
+    // and proper destruction when the program exits
+    static RuntimeLoader instance;
+    return instance;
 }
 
 RuntimeLoader::~RuntimeLoader() {
@@ -46,7 +53,7 @@ RuntimeLoader::~RuntimeLoader() {
     loaded_libraries_.clear();
     handle_to_path_.clear();
     
-    LOG_SYSTEM_DEBUG("RuntimeLoader destroyed");
+    LOG_SYSTEM_DEBUG("RuntimeLoader destroyed (Singleton)");
 }
 
 Result<std::map<std::string, LibraryInfo>> RuntimeLoader::ScanForLibraries(const std::vector<std::string>& patterns) {

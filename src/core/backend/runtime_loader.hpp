@@ -46,8 +46,18 @@ struct LibraryInfo {
  * - Complete audit trail for all operations
  */
 class RuntimeLoader {
-public:
+private:
+    // Private constructor to prevent direct instantiation
     RuntimeLoader();
+    
+    // Delete copy constructor and assignment operator to prevent copying
+    RuntimeLoader(const RuntimeLoader&) = delete;
+    RuntimeLoader& operator=(const RuntimeLoader&) = delete;
+
+public:
+    // Public static method to get the single instance of RuntimeLoader
+    static RuntimeLoader& GetInstance();
+    
     ~RuntimeLoader();
     
     // Library detection and scanning
