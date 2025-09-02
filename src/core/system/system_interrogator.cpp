@@ -13,12 +13,18 @@
 #include <sstream>
 #include <algorithm>
 
+// Include Vulkan headers for enhanced detection - ONLY if SDK is available
+#ifdef KERNTOPIA_VULKAN_SDK_AVAILABLE
+#include <vulkan/vulkan.h>
+#endif
+
 namespace kerntopia {
 
 // Static member definitions
 // Note: RuntimeLoader is now a singleton, no static member needed
 std::unique_ptr<SystemInfo> SystemInterrogator::cached_system_info_ = nullptr;
 bool SystemInterrogator::cache_valid_ = false;
+void* SystemInterrogator::cached_vulkan_library_handle_ = nullptr;
 
 Result<SystemInfo> SystemInterrogator::GetSystemInfo() {
     if (cache_valid_ && cached_system_info_) {
@@ -107,6 +113,77 @@ Result<void> SystemInterrogator::RefreshRuntimes() {
     cache_valid_ = false;
     cached_system_info_.reset();
     return KERNTOPIA_VOID_SUCCESS();
+}
+
+Result<std::string> SystemInterrogator::GetVulkanLibraryPath() {
+    // Use cached system info to get the selected Vulkan library path
+    auto system_info_result = GetSystemInfo();
+    if (!system_info_result) {
+        return KERNTOPIA_RESULT_ERROR(std::string, ErrorCategory::SYSTEM, ErrorCode::SYSTEM_INTERROGATION_FAILED,
+                                     "Failed to get system information");
+    }
+    
+    const SystemInfo& info = system_info_result.GetValue();
+    if (!info.vulkan_runtime.available) {
+        return KERNTOPIA_RESULT_ERROR(std::string, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Vulkan runtime not available");
+    }
+    
+    if (info.vulkan_runtime.primary_library_path.empty()) {
+        return KERNTOPIA_RESULT_ERROR(std::string, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "No Vulkan library path detected");
+    }
+    
+    return KERNTOPIA_SUCCESS(info.vulkan_runtime.primary_library_path);
+}
+
+std::vector<std::string> SystemInterrogator::GetVulkanInstanceExtensions() {
+    // For now, return minimal extensions for compute workloads
+    // Could be enhanced based on detected capabilities
+    std::vector<std::string> extensions;
+    
+    // No extensions required for basic compute workloads
+    // Extensions like VK_KHR_surface, VK_KHR_swapchain only needed for graphics
+    
+    return extensions;
+}
+
+bool SystemInterrogator::ValidateVulkanDevice(int device_id) {
+    // Use cached system info to validate device
+    auto system_info_result = GetSystemInfo();
+    if (!system_info_result) {
+        return false;
+    }
+    
+    const SystemInfo& info = system_info_result.GetValue();
+    if (!info.vulkan_runtime.available || info.vulkan_runtime.devices.empty()) {
+        return false;
+    }
+    
+    // Check if device_id is within valid range
+    return (device_id >= 0 && device_id < static_cast<int>(info.vulkan_runtime.devices.size()));
+}
+
+Result<void*> SystemInterrogator::GetVulkanLibraryHandle() {
+    // Ensure we have detected Vulkan runtime and cached the library handle
+    auto system_info_result = GetSystemInfo();
+    if (!system_info_result) {
+        return KERNTOPIA_RESULT_ERROR(void*, ErrorCategory::SYSTEM, ErrorCode::SYSTEM_INTERROGATION_FAILED,
+                                     "Failed to get system information");
+    }
+    
+    const SystemInfo& info = system_info_result.GetValue();
+    if (!info.vulkan_runtime.available) {
+        return KERNTOPIA_RESULT_ERROR(void*, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
+                                     "Vulkan runtime not available");
+    }
+    
+    if (!cached_vulkan_library_handle_) {
+        return KERNTOPIA_RESULT_ERROR(void*, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
+                                     "Vulkan library handle not cached");
+    }
+    
+    return KERNTOPIA_SUCCESS(cached_vulkan_library_handle_);
 }
 
 RuntimeInfo SystemInterrogator::DetectCudaRuntime() {
@@ -247,49 +324,131 @@ RuntimeInfo SystemInterrogator::DetectVulkanRuntime() {
     RuntimeInfo info;
     info.name = "Vulkan";
     
-    // Use singleton RuntimeLoader
+    // PHASE 1: Set up ICD environment for Lavapipe (CPU Vulkan implementation)
+    const char* vk_icd_filenames = std::getenv("VK_ICD_FILENAMES");
+    if (!vk_icd_filenames) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Setting VK_ICD_FILENAMES for Lavapipe CPU support");
+        setenv("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json", 1);
+    } else {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
+    }
+    
+    // PHASE 2: Use sophisticated library selection (matching vulkan_runner.cpp priority)
     RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    std::vector<std::string> vulkan_candidates;
     
-    // Search for Vulkan libraries using existing pattern
-    std::vector<std::string> vulkan_patterns = {"vulkan"};
+    // FIRST priority: System paths (these work best in WSL/Linux environments) 
+    std::vector<std::string> system_paths = {
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so",
+        "/usr/lib/libvulkan.so.1", 
+        "/usr/lib/libvulkan.so"
+    };
+    
+    // Add system paths first
+    for (const std::string& path : system_paths) {
+        vulkan_candidates.push_back(path);
+    }
+    
+    // SECOND priority: SDK and custom paths via ScanForLibraries
+    std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
     auto scan_result = runtime_loader.ScanForLibraries(vulkan_patterns);
+    if (scan_result) {
+        for (const auto& [name, lib_info] : *scan_result) {
+            // Only add if not already in system paths
+            if (std::find(vulkan_candidates.begin(), vulkan_candidates.end(), lib_info.full_path) == vulkan_candidates.end()) {
+                vulkan_candidates.push_back(lib_info.full_path);
+            }
+        }
+    }
     
-    if (!scan_result || scan_result->empty()) {
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Vulkan library candidates found: " + std::to_string(vulkan_candidates.size()));
+    for (size_t i = 0; i < vulkan_candidates.size(); ++i) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "  [" + std::to_string(i+1) + "] " + vulkan_candidates[i]);
+    }
+    
+    // PHASE 3: Try to load first successfully loadable candidate
+    std::string selected_library;
+    void* library_handle = nullptr;
+    
+    for (const std::string& candidate : vulkan_candidates) {
+        auto load_result = runtime_loader.LoadLibrary(candidate);
+        if (load_result) {
+            library_handle = *load_result;
+            selected_library = candidate;
+            KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Selected Vulkan library: " + candidate);
+            
+            // Store the library handle for compatibility layer access
+            cached_vulkan_library_handle_ = library_handle;
+            
+            break;
+        } else {
+            KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Failed to load candidate: " + candidate);
+        }
+    }
+    
+    if (!library_handle || selected_library.empty()) {
         info.available = false;
-        info.error_message = "Vulkan libraries not found";
+        info.error_message = "No loadable Vulkan libraries found";
         return info;
     }
     
-    // Process detected libraries
-    auto& libraries = *scan_result;
-    if (!libraries.empty()) {
-        auto& first_lib = libraries.begin()->second;
-        info.available = true;
-        info.primary_library_path = first_lib.full_path;
-        info.version = first_lib.version;
-        info.library_checksum = first_lib.checksum;
-        info.library_file_size = first_lib.file_size;
-        info.library_last_modified = first_lib.last_modified;
-        
-        // Collect all library paths
-        for (const auto& [name, lib_info] : libraries) {
-            info.library_paths.push_back(lib_info.full_path);
-        }
-        
-        // Set Vulkan capabilities
-        info.capabilities.jit_compilation = false;  // Vulkan uses precompiled SPIR-V
-        info.capabilities.precompiled_kernels = true;
-        info.capabilities.memory_management = true;
-        info.capabilities.device_enumeration = true;
-        info.capabilities.performance_counters = true;
-        info.capabilities.supported_targets = {"spirv"};
-        info.capabilities.supported_profiles = {"glsl_450", "glsl_460"};
-        info.capabilities.supported_stages = {"compute", "vertex", "fragment"};
-        
-        // Enumerate devices
-        info.devices = EnumerateVulkanDevices(info);
+    // PHASE 4: Verify basic Vulkan function loading
+    auto vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        runtime_loader.GetSymbol(library_handle, "vkGetInstanceProcAddr"));
+    
+    if (!vkGetInstanceProcAddr) {
+        info.available = false;
+        info.error_message = "Failed to load vkGetInstanceProcAddr from " + selected_library;
+        return info;
     }
     
+    // Try to get vkCreateInstance to verify loader functionality
+    auto vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance"));
+    
+    if (!vkCreateInstance) {
+        info.available = false;
+        info.error_message = "Failed to load vkCreateInstance from " + selected_library;
+        return info;
+    }
+    
+    // PHASE 5: Success - populate runtime info
+    info.available = true;
+    info.primary_library_path = selected_library;
+    
+    // Collect file metadata for the selected library
+    struct stat stat_buf;
+    if (stat(selected_library.c_str(), &stat_buf) == 0) {
+        info.library_file_size = stat_buf.st_size;
+        info.library_checksum = std::to_string(stat_buf.st_size) + "_" + std::to_string(stat_buf.st_mtime);
+        
+        char time_buf[64];
+        struct tm* tm_info = localtime(&stat_buf.st_mtime);
+        strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+        info.library_last_modified = time_buf;
+    }
+    
+    // Store all candidate paths for reference
+    info.library_paths = vulkan_candidates;
+    
+    // Set Vulkan capabilities
+    info.capabilities.jit_compilation = false;  // Vulkan uses precompiled SPIR-V
+    info.capabilities.precompiled_kernels = true;
+    info.capabilities.memory_management = true;
+    info.capabilities.device_enumeration = true;
+    info.capabilities.performance_counters = true;
+    info.capabilities.supported_targets = {"spirv"};
+    info.capabilities.supported_profiles = {"glsl_450", "glsl_460"};
+    info.capabilities.supported_stages = {"compute", "vertex", "fragment"};
+    
+    // Store version information - try to get from loader
+    info.version = "Vulkan Loader (Dynamic Detection)";
+    
+    // Enumerate devices
+    info.devices = EnumerateVulkanDevices(info);
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Vulkan runtime detection complete: " + selected_library);
     return info;
 }
 
@@ -541,16 +700,226 @@ std::vector<DeviceInfo> SystemInterrogator::EnumerateCudaDevices(const RuntimeIn
 }
 
 std::vector<DeviceInfo> SystemInterrogator::EnumerateVulkanDevices(const RuntimeInfo& vulkan_info) {
-    // Simplified device enumeration - would use actual Vulkan API in full implementation
     std::vector<DeviceInfo> devices;
-    if (vulkan_info.available) {
-        // Placeholder device info
-        DeviceInfo device;
-        device.name = "Vulkan Device (Detection Pending)";
-        device.backend_type = Backend::VULKAN;
-        device.total_memory_bytes = 0;  // Would query actual device
-        devices.push_back(device);
+    
+    if (!vulkan_info.available || vulkan_info.primary_library_path.empty()) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Vulkan not available, skipping device enumeration");
+        return devices;
     }
+    
+#ifdef KERNTOPIA_VULKAN_SDK_AVAILABLE
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Starting real Vulkan device enumeration with SDK");
+    
+    // PHASE 1: Load Vulkan library and get function pointers
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    auto load_result = runtime_loader.LoadLibrary(vulkan_info.primary_library_path);
+    if (!load_result) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to load Vulkan library for device enumeration: " + vulkan_info.primary_library_path);
+        return devices;
+    }
+    
+    void* library_handle = *load_result;
+    
+    // Get vkGetInstanceProcAddr first
+    auto vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        runtime_loader.GetSymbol(library_handle, "vkGetInstanceProcAddr"));
+    
+    if (!vkGetInstanceProcAddr) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to get vkGetInstanceProcAddr for device enumeration");
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Successfully loaded vkGetInstanceProcAddr");
+    
+    // Get global-level functions (can be called with VK_NULL_HANDLE)
+    // Note: Only certain functions can be loaded at global level - vkDestroyInstance is instance-level
+    PFN_vkCreateInstance vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance"));
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "vkCreateInstance ptr: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
+    
+    if (!vkCreateInstance) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to get vkCreateInstance at global level");
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Successfully loaded global Vulkan functions");
+    
+    // PHASE 2: Create minimal Vulkan instance
+    VkApplicationInfo app_info = {};
+    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    app_info.pApplicationName = "Kerntopia System Interrogator";
+    app_info.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
+    app_info.pEngineName = "Kerntopia";
+    app_info.engineVersion = VK_MAKE_VERSION(0, 1, 0);
+    app_info.apiVersion = VK_API_VERSION_1_0;
+    
+    VkInstanceCreateInfo instance_info = {};
+    instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_info.pApplicationInfo = &app_info;
+    instance_info.enabledExtensionCount = 0;
+    instance_info.ppEnabledExtensionNames = nullptr;
+    instance_info.enabledLayerCount = 0;
+    instance_info.ppEnabledLayerNames = nullptr;
+    
+    VkInstance instance = VK_NULL_HANDLE;
+    VkResult result = vkCreateInstance(&instance_info, nullptr, &instance);
+    if (result != VK_SUCCESS) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to create Vulkan instance for device enumeration: " + std::to_string(result));
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Vulkan instance created successfully");
+    
+    // Now load vkDestroyInstance with the valid instance handle
+    PFN_vkDestroyInstance vkDestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(
+        vkGetInstanceProcAddr(instance, "vkDestroyInstance"));
+    
+    if (!vkDestroyInstance) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to get vkDestroyInstance with instance handle");
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "vkDestroyInstance loaded: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(vkDestroyInstance)));
+    
+    // PHASE 3: Get instance-level function pointers (require valid VkInstance handle)
+    PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
+        vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"));
+    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"));
+    PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"));
+    PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Instance-level function pointers loaded:");
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "  vkEnumeratePhysicalDevices: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(vkEnumeratePhysicalDevices)));
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "  vkGetPhysicalDeviceProperties: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(vkGetPhysicalDeviceProperties)));
+    
+    if (!vkEnumeratePhysicalDevices || !vkGetPhysicalDeviceProperties || 
+        !vkGetPhysicalDeviceMemoryProperties || !vkGetPhysicalDeviceQueueFamilyProperties) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to get required Vulkan device functions");
+        vkDestroyInstance(instance, nullptr);
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "All instance-level functions loaded successfully");
+    
+    // PHASE 4: Enumerate physical devices
+    uint32_t device_count = 0;
+    result = vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
+    if (result != VK_SUCCESS || device_count == 0) {
+        KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "No Vulkan physical devices found");
+        vkDestroyInstance(instance, nullptr);
+        return devices;
+    }
+    
+    std::vector<VkPhysicalDevice> physical_devices(device_count);
+    result = vkEnumeratePhysicalDevices(instance, &device_count, physical_devices.data());
+    if (result != VK_SUCCESS) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to enumerate Vulkan physical devices");
+        vkDestroyInstance(instance, nullptr);
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Found " + std::to_string(device_count) + " Vulkan physical devices");
+    
+    // PHASE 5: Query each device and create DeviceInfo
+    for (uint32_t i = 0; i < device_count; ++i) {
+        VkPhysicalDevice physical_device = physical_devices[i];
+        
+        // Get device properties
+        VkPhysicalDeviceProperties device_props = {};
+        vkGetPhysicalDeviceProperties(physical_device, &device_props);
+        
+        // Get memory properties
+        VkPhysicalDeviceMemoryProperties memory_props = {};
+        vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_props);
+        
+        // Get queue family properties
+        uint32_t queue_family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.data());
+        
+        // Create DeviceInfo
+        DeviceInfo device_info;
+        device_info.name = device_props.deviceName;
+        device_info.backend_type = Backend::VULKAN;
+        
+        // Calculate total memory from all device-local heaps
+        uint64_t total_memory = 0;
+        for (uint32_t j = 0; j < memory_props.memoryHeapCount; ++j) {
+            if (memory_props.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+                total_memory += memory_props.memoryHeaps[j].size;
+            }
+        }
+        device_info.total_memory_bytes = total_memory;
+        
+        // Set device-specific information
+        device_info.api_version = std::to_string(VK_VERSION_MAJOR(device_props.apiVersion)) + "." +
+                                 std::to_string(VK_VERSION_MINOR(device_props.apiVersion)) + "." +
+                                 std::to_string(VK_VERSION_PATCH(device_props.apiVersion));
+        
+        // Store additional device info in the name for now (could enhance DeviceInfo structure later)
+        device_info.name = device_props.deviceName;
+        if (device_props.vendorID != 0) {
+            device_info.name += " (VID: 0x" + std::to_string(device_props.vendorID) + 
+                               ", DID: 0x" + std::to_string(device_props.deviceID) + ")";
+        }
+        
+        // Find compute queue family
+        bool has_compute = false;
+        for (uint32_t j = 0; j < queue_family_count; ++j) {
+            if (queue_families[j].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                has_compute = true;
+                break;
+            }
+        }
+        
+        if (has_compute) {
+            device_info.compute_capability = "Vulkan Compute";
+            devices.push_back(device_info);
+            
+            KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, 
+                "Device " + std::to_string(i) + ": " + device_info.name + 
+                " (" + std::to_string(total_memory / (1024*1024)) + " MB)");
+        } else {
+            KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, 
+                "Device " + std::to_string(i) + " (" + device_info.name + ") has no compute queues, skipping");
+        }
+    }
+    
+    // PHASE 6: Cleanup
+    vkDestroyInstance(instance, nullptr);
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Vulkan device enumeration complete: " + std::to_string(devices.size()) + " compute-capable devices found");
+    
+#else
+    // Build was not configured with Vulkan SDK - provide clear feedback
+    KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, 
+        "Vulkan device enumeration not available - build was not configured with Vulkan SDK headers");
+    KERNTOPIA_LOG_INFO(LogComponent::SYSTEM, 
+        "To enable detailed Vulkan device detection, rebuild with KERNTOPIA_VULKAN_SDK_AVAILABLE=ON");
+    
+    // Return minimal device info indicating SDK limitation
+    if (vulkan_info.available) {
+        DeviceInfo device;
+        device.name = "Vulkan Device (Detailed detection requires SDK)";
+        device.backend_type = Backend::VULKAN;
+        device.total_memory_bytes = 0;
+        device.compute_capability = "Vulkan Compute (Basic detection only)";
+        devices.push_back(device);
+        
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, 
+            "Added placeholder device info - rebuild with SDK for detailed information");
+    }
+#endif
+    
     return devices;
 }
 

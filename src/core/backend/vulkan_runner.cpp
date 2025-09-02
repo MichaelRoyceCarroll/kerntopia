@@ -153,8 +153,8 @@ static vkDestroyFence_t vkDestroyFence = nullptr;
 static vkWaitForFences_t vkWaitForFences = nullptr;
 static vkResetFences_t vkResetFences = nullptr;
 
-static LibraryHandle vulkan_loader_handle = nullptr;
 // Note: Using singleton RuntimeLoader to maintain library persistence across backends
+// Vulkan library handle is now managed by SystemInterrogator compatibility layer
 
 // Helper function to load instance-level functions using vkGetInstanceProcAddr
 static Result<void> LoadInstanceFunctions(VkInstance instance) {
@@ -325,79 +325,29 @@ static Result<void> LoadDeviceFunctions(VkInstance instance, VkDevice device) {
     return KERNTOPIA_VOID_SUCCESS();
 }
 
-// Helper function to load Vulkan loader
+// Helper function to load Vulkan loader using SystemInterrogator compatibility layer
 static Result<void> LoadVulkanLoader() {
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Starting");
-    if (vulkan_loader_handle) {
-        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Already loaded, returning");
-        return KERNTOPIA_VOID_SUCCESS(); // Already loaded
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Starting with SystemInterrogator compatibility layer");
+    
+    // Skip loading if functions are already loaded
+    if (vkGetInstanceProcAddr && vkCreateInstance) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Vulkan functions already loaded, returning");
+        return KERNTOPIA_VOID_SUCCESS();
     }
     
-    // CRITICAL: Set ICD environment variable BEFORE any Vulkan operations
-    const char* vk_icd_filenames = std::getenv("VK_ICD_FILENAMES");
-    if (!vk_icd_filenames) {
-        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: Setting VK_ICD_FILENAMES for Lavapipe");
-        setenv("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json", 1);
-    } else {
-        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "LoadVulkanLoader: VK_ICD_FILENAMES already set: " + std::string(vk_icd_filenames));
-    }
-    
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Using singleton RuntimeLoader");
-    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
-    
-    // EMERGENCY FIX: Test with system loader first since minimal test works
-    // Use same search strategy as detection but prioritize SYSTEM loader over VULKAN_SDK
-    std::vector<std::string> vulkan_candidates;
-    std::string selected_loader;
-    
-    // FIRST priority: System paths (these work with our minimal test)
-    std::vector<std::string> system_paths = {
-        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
-        "/usr/lib/x86_64-linux-gnu/libvulkan.so",
-        "/usr/lib/libvulkan.so.1", 
-        "/usr/lib/libvulkan.so"
-    };
-    
-    // Add system paths first
-    for (const std::string& path : system_paths) {
-        vulkan_candidates.push_back(path);
-    }
-    
-    // SECOND priority: Use ScanForLibraries for SDK/custom paths
-    std::vector<std::string> vulkan_patterns = {"vulkan", "vulkan-1"};
-    auto scan_result = runtime_loader.ScanForLibraries(vulkan_patterns);
-    if (scan_result) {
-        for (const auto& [name, lib_info] : *scan_result) {
-            // Only add if not already in system paths
-            if (std::find(vulkan_candidates.begin(), vulkan_candidates.end(), lib_info.full_path) == vulkan_candidates.end()) {
-                vulkan_candidates.push_back(lib_info.full_path);
-            }
-        }
-    }
-    
-    // Log all candidates found
-    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Vulkan loader candidates found: " + std::to_string(vulkan_candidates.size()));
-    for (size_t i = 0; i < vulkan_candidates.size(); ++i) {
-        KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "  [" + std::to_string(i+1) + "] " + vulkan_candidates[i]);
-    }
-    
-    // Try to load first successfully loadable candidate (respects search priority)
-    for (const std::string& candidate : vulkan_candidates) {
-        auto load_result = runtime_loader.LoadLibrary(candidate);
-        if (load_result) {
-            vulkan_loader_handle = *load_result;
-            selected_loader = candidate;
-            KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Selected Vulkan loader: " + candidate);
-            break;
-        } else {
-            KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Failed to load candidate: " + candidate);
-        }
-    }
-    
-    if (!vulkan_loader_handle) {
+    // Use SystemInterrogator's cached Vulkan library handle for consistency
+    auto handle_result = SystemInterrogator::GetVulkanLibraryHandle();
+    if (!handle_result) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
-                                     "Failed to load Vulkan loader library");
+                                     "Failed to get Vulkan library handle from SystemInterrogator: " + handle_result.GetError().message);
     }
+    
+    void* vulkan_loader_handle = handle_result.GetValue();
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Using SystemInterrogator's Vulkan library handle: " +
+                       std::to_string(reinterpret_cast<uintptr_t>(vulkan_loader_handle)));
+    
+    // Get RuntimeLoader singleton for symbol loading
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
     
     // Load vkGetInstanceProcAddr - the ONLY function we can load directly via dlsym
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: Loading vkGetInstanceProcAddr via dlsym");
@@ -432,18 +382,16 @@ static Result<void> LoadVulkanLoader() {
     // Note: ALL other functions (including vkEnumeratePhysicalDevices) are instance-level
     // and MUST be loaded in LoadInstanceFunctions() with a valid VkInstance handle
     
-    // Verify critical global-level functions were loaded
-    if (!vkCreateInstance) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Verification failed - vkCreateInstance: " +
+    if (!vkGetInstanceProcAddr || !vkCreateInstance) {
+        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "LoadVulkanLoader: Essential function validation failed: vkCreateInstance=" +
                            std::to_string(reinterpret_cast<uintptr_t>(vkCreateInstance)));
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::LIBRARY_LOAD_FAILED,
                                      "Failed to load required Vulkan global functions");
     }
     
-    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: All function pointers loaded successfully");
+    KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "LoadVulkanLoader: All function pointers loaded successfully using SystemInterrogator compatibility layer");
     return KERNTOPIA_VOID_SUCCESS();
 }
-
 // Helper to convert Vulkan error to string
 static std::string VulkanResultString(VkResult result) {
     switch (result) {
@@ -1276,26 +1224,12 @@ Result<void> VulkanKernelRunner::SetSlangGlobalParameters(const void* params, si
 
 // VulkanKernelRunnerFactory implementation
 bool VulkanKernelRunnerFactory::IsAvailable() const {
-    auto load_result = LoadVulkanLoader();
-    if (!load_result) {
-        KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Vulkan loader not available: " + load_result.GetError().message);
-        return false;
-    }
-    
-    // For now, if we can load the Vulkan library successfully, assume it's available
-    // This avoids potential ABI issues with structure definitions during detection phase
-    KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Vulkan loader successfully loaded - marking as available");
-    return true;
+    // Use SystemInterrogator for consistent runtime detection (matches CUDA pattern)
+    return SystemInterrogator::IsRuntimeAvailable(RuntimeType::VULKAN);
 }
 
 std::vector<DeviceInfo> VulkanKernelRunnerFactory::EnumerateDevices() const {
-    auto load_result = LoadVulkanLoader();
-    if (!load_result) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Cannot enumerate Vulkan devices: " + load_result.GetError().message);
-        return {};
-    }
-    
-    // Use SystemInterrogator to get the actual detected Vulkan devices
+    // Use SystemInterrogator to get the actual detected Vulkan devices (matches CUDA pattern)
     // This avoids duplicating device detection logic
     auto system_info_result = SystemInterrogator::GetSystemInfo();
     if (!system_info_result.HasValue()) {
@@ -1304,7 +1238,7 @@ std::vector<DeviceInfo> VulkanKernelRunnerFactory::EnumerateDevices() const {
         return {};
     }
     
-    auto system_info = system_info_result.GetValue();
+    const SystemInfo& system_info = system_info_result.GetValue();
     
     // Extract Vulkan devices from system info
     std::vector<DeviceInfo> devices = system_info.vulkan_runtime.devices;
@@ -1326,13 +1260,13 @@ std::vector<DeviceInfo> VulkanKernelRunnerFactory::EnumerateDevices() const {
 }
 
 Result<std::unique_ptr<IKernelRunner>> VulkanKernelRunnerFactory::CreateRunner(int device_id) const {
-    auto load_result = LoadVulkanLoader();
-    if (!load_result) {
+    // Use SystemInterrogator for basic availability check (matches CUDA pattern)
+    if (!SystemInterrogator::IsRuntimeAvailable(RuntimeType::VULKAN)) {
         return KERNTOPIA_RESULT_ERROR(std::unique_ptr<IKernelRunner>, ErrorCategory::BACKEND,
-                                     ErrorCode::BACKEND_NOT_AVAILABLE, "Vulkan loader not available");
+                                     ErrorCode::BACKEND_NOT_AVAILABLE, "Vulkan runtime not available via SystemInterrogator");
     }
     
-    // Validate device ID by enumerating devices
+    // Validate device ID using SystemInterrogator devices (matches CUDA pattern)
     auto devices = EnumerateDevices();
     if (device_id < 0 || device_id >= static_cast<int>(devices.size())) {
         return KERNTOPIA_RESULT_ERROR(std::unique_ptr<IKernelRunner>, ErrorCategory::VALIDATION,
@@ -1343,6 +1277,13 @@ Result<std::unique_ptr<IKernelRunner>> VulkanKernelRunnerFactory::CreateRunner(i
     // Get the actual device info detected by SystemInterrogator
     const DeviceInfo& selected_device = devices[device_id];
     
+    // COMPATIBILITY: Still load Vulkan functions for runtime execution
+    auto load_result = LoadVulkanLoader();
+    if (!load_result) {
+        return KERNTOPIA_RESULT_ERROR(std::unique_ptr<IKernelRunner>, ErrorCategory::BACKEND,
+                                     ErrorCode::BACKEND_NOT_AVAILABLE, "Vulkan loader not available for runtime");
+    }
+    
     // Create and initialize runner with the selected device info
     std::unique_ptr<IKernelRunner> runner = std::make_unique<VulkanKernelRunner>(selected_device);
     
@@ -1352,13 +1293,18 @@ Result<std::unique_ptr<IKernelRunner>> VulkanKernelRunnerFactory::CreateRunner(i
 }
 
 std::string VulkanKernelRunnerFactory::GetVersion() const {
-    auto load_result = LoadVulkanLoader();
-    if (!load_result) {
+    // Use SystemInterrogator to get version information (matches CUDA pattern)
+    if (!SystemInterrogator::IsRuntimeAvailable(RuntimeType::VULKAN)) {
         return "Not Available";
     }
     
-    // TODO: Query actual Vulkan instance version
-    return "Vulkan Loader (Dynamic)";
+    // Get version information from SystemInterrogator
+    auto system_info_result = SystemInterrogator::GetSystemInfo();
+    if (system_info_result && system_info_result.GetValue().vulkan_runtime.available) {
+        return system_info_result.GetValue().vulkan_runtime.version;
+    }
+    
+    return "Vulkan Loader (Dynamic Detection)";
 }
 
 // VulkanKernelRunner implementation methods

@@ -61,6 +61,47 @@ public:
      * @return Success result
      */
     static Result<void> RefreshRuntimes();
+    
+    /**
+     * @brief Get the selected Vulkan library path
+     * 
+     * Returns the path to the Vulkan library that was selected during
+     * detection, allowing backends to use the same library.
+     * 
+     * @return Library path or error if Vulkan not available
+     */
+    static Result<std::string> GetVulkanLibraryPath();
+    
+    /**
+     * @brief Get required Vulkan instance extensions
+     * 
+     * Returns the list of Vulkan instance extensions that should be
+     * enabled for proper functionality.
+     * 
+     * @return List of extension names
+     */
+    static std::vector<std::string> GetVulkanInstanceExtensions();
+    
+    /**
+     * @brief Validate that a Vulkan device ID is available
+     * 
+     * Checks if the specified device ID corresponds to a valid,
+     * available Vulkan device.
+     * 
+     * @param device_id Device ID to validate
+     * @return True if device is valid and available
+     */
+    static bool ValidateVulkanDevice(int device_id);
+    
+    /**
+     * @brief Get the loaded Vulkan library handle
+     * 
+     * Returns the library handle that was loaded during Vulkan runtime detection.
+     * This allows backends to use the same library instance for consistency.
+     * 
+     * @return Library handle or error if Vulkan not loaded
+     */
+    static Result<void*> GetVulkanLibraryHandle();
 
 private:
     SystemInterrogator() = default;
@@ -89,6 +130,9 @@ private:
     // Cached results to avoid repeated detection
     static std::unique_ptr<SystemInfo> cached_system_info_;
     static bool cache_valid_;
+    
+    // Loaded library handles for compatibility layer
+    static void* cached_vulkan_library_handle_;
 };
 
 } // namespace kerntopia
