@@ -56,17 +56,14 @@ static cuModuleLoadData_t cu_ModuleLoadData = nullptr;
 static cuModuleUnload_t cu_ModuleUnload = nullptr;
 static cuModuleGetFunction_t cu_ModuleGetFunction = nullptr;
 static cuModuleGetGlobal_t cu_ModuleGetGlobal = nullptr;
-static cuMemAlloc_t cu_MemAlloc = nullptr;
-static cuMemFree_t cu_MemFree = nullptr;
-static cuMemcpyHtoD_t cu_MemcpyHtoD = nullptr;
-static cuMemcpyDtoH_t cu_MemcpyDtoH = nullptr;
+// Memory function pointers are now defined in cuda_memory.cpp as extern
 static cuLaunchKernel_t cu_LaunchKernel = nullptr;
 static cuEventCreate_t cu_EventCreate = nullptr;
 static cuEventDestroy_t cu_EventDestroy = nullptr;
 static cuEventRecord_t cu_EventRecord = nullptr;
 static cuEventElapsedTime_t cu_EventElapsedTime = nullptr;
 static cuCtxSynchronize_t cu_CtxSynchronize = nullptr;
-static cuGetErrorString_t cu_GetErrorString = nullptr;
+// cu_GetErrorString is now defined in cuda_memory.cpp as extern
 
 static LibraryHandle cuda_driver_handle = nullptr;
 
@@ -100,141 +97,7 @@ std::string CudaKernelRunner::CudaErrorToString(CUresult cuda_error) {
     return "CUDA error " + std::to_string(static_cast<int>(cuda_error));
 }
 
-// CudaBuffer implementation
-CudaBuffer::CudaBuffer(size_t size, Type type, Usage usage) 
-    : size_(size), type_(type), usage_(usage) {
-    
-    CUresult result = cu_MemAlloc(&device_ptr_, size);
-    if (result != CUDA_SUCCESS) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to allocate CUDA buffer: " + CudaKernelRunner::CudaErrorToString(result));
-        device_ptr_ = 0;
-    }
-}
-
-CudaBuffer::~CudaBuffer() {
-    if (device_ptr_) {
-        cu_MemFree(device_ptr_);
-    }
-    if (host_ptr_) {
-        delete[] static_cast<uint8_t*>(host_ptr_);
-    }
-}
-
-void* CudaBuffer::Map() {
-    if (!is_mapped_ && !host_ptr_) {
-        host_ptr_ = new uint8_t[size_];
-        is_mapped_ = true;
-    }
-    return host_ptr_;
-}
-
-void CudaBuffer::Unmap() {
-    is_mapped_ = false;
-    // Keep host_ptr_ allocated for reuse
-}
-
-Result<void> CudaBuffer::UploadData(const void* data, size_t size, size_t offset) {
-    if (device_ptr_ == 0) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
-                                     "CUDA buffer not allocated");
-    }
-    
-    if (offset + size > size_) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::VALIDATION, ErrorCode::INVALID_ARGUMENT,
-                                     "Upload size exceeds buffer bounds");
-    }
-    
-    CUresult result = cu_MemcpyHtoD(device_ptr_ + offset, data, size);
-    if (result != CUDA_SUCCESS) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
-                                     "CUDA memory upload failed: " + CudaKernelRunner::CudaErrorToString(result));
-    }
-    
-    return KERNTOPIA_VOID_SUCCESS();
-}
-
-Result<void> CudaBuffer::DownloadData(void* data, size_t size, size_t offset) {
-    if (device_ptr_ == 0) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
-                                     "CUDA buffer not allocated");
-    }
-    
-    if (offset + size > size_) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::VALIDATION, ErrorCode::INVALID_ARGUMENT,
-                                     "Download size exceeds buffer bounds");
-    }
-    
-    CUresult result = cu_MemcpyDtoH(data, device_ptr_ + offset, size);
-    if (result != CUDA_SUCCESS) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
-                                     "CUDA memory download failed: " + CudaKernelRunner::CudaErrorToString(result));
-    }
-    
-    return KERNTOPIA_VOID_SUCCESS();
-}
-
-// CudaTexture implementation (simplified as buffer for compute)
-CudaTexture::CudaTexture(const TextureDesc& desc) : desc_(desc) {
-    // For compute shaders, treat texture as linear buffer
-    size_t bytes_per_pixel = 4; // Assume RGBA8 for now
-    switch (desc.format) {
-        case TextureDesc::Format::R8_UNORM: bytes_per_pixel = 1; break;
-        case TextureDesc::Format::RG8_UNORM: bytes_per_pixel = 2; break;
-        case TextureDesc::Format::RGBA8_UNORM: bytes_per_pixel = 4; break;
-        case TextureDesc::Format::R16_FLOAT: bytes_per_pixel = 2; break;
-        case TextureDesc::Format::RGBA16_FLOAT: bytes_per_pixel = 8; break;
-        case TextureDesc::Format::R32_FLOAT: bytes_per_pixel = 4; break;
-        case TextureDesc::Format::RGBA32_FLOAT: bytes_per_pixel = 16; break;
-    }
-    
-    size_t total_size = desc.width * desc.height * desc.depth * bytes_per_pixel;
-    
-    CUresult result = cu_MemAlloc(&device_ptr_, total_size);
-    if (result != CUDA_SUCCESS) {
-        KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to allocate CUDA texture: " + CudaKernelRunner::CudaErrorToString(result));
-        device_ptr_ = 0;
-    }
-}
-
-CudaTexture::~CudaTexture() {
-    if (device_ptr_) {
-        cu_MemFree(device_ptr_);
-    }
-}
-
-Result<void> CudaTexture::UploadData(const void* data, uint32_t mip_level, uint32_t array_layer) {
-    if (!device_ptr_) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
-                                     "CUDA texture not allocated");
-    }
-    
-    // Simple linear upload for compute textures
-    size_t bytes_per_pixel = 4; // Simplified
-    size_t total_size = desc_.width * desc_.height * desc_.depth * bytes_per_pixel;
-    
-    CUresult result = cu_MemcpyHtoD(device_ptr_, data, total_size);
-    if (result != CUDA_SUCCESS) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
-                                     "CUDA texture upload failed: " + CudaKernelRunner::CudaErrorToString(result));
-    }
-    
-    return KERNTOPIA_VOID_SUCCESS();
-}
-
-Result<void> CudaTexture::DownloadData(void* data, size_t data_size, uint32_t mip_level, uint32_t array_layer) {
-    if (!device_ptr_) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
-                                     "CUDA texture not allocated");
-    }
-    
-    CUresult result = cu_MemcpyDtoH(data, device_ptr_, data_size);
-    if (result != CUDA_SUCCESS) {
-        return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
-                                     "CUDA texture download failed: " + CudaKernelRunner::CudaErrorToString(result));
-    }
-    
-    return KERNTOPIA_VOID_SUCCESS();
-}
+// Memory class implementations moved to cuda_memory.cpp
 
 // CudaKernelRunner implementation
 CudaKernelRunner::CudaKernelRunner(int device_id) : device_id_(device_id) {
@@ -680,6 +543,14 @@ static Result<void> InitializeCudaDriver() {
     cu_EventElapsedTime = reinterpret_cast<cuEventElapsedTime_t>(loader.GetSymbol(cuda_driver_handle, "cuEventElapsedTime"));
     cu_CtxSynchronize = reinterpret_cast<cuCtxSynchronize_t>(loader.GetSymbol(cuda_driver_handle, "cuCtxSynchronize"));
     cu_GetErrorString = reinterpret_cast<cuGetErrorString_t>(loader.GetSymbol(cuda_driver_handle, "cuGetErrorString"));
+    
+    // Initialize extern function pointers for cuda_memory.cpp
+    // (they reference the same loaded functions)
+    kerntopia::cu_MemAlloc = cu_MemAlloc;
+    kerntopia::cu_MemFree = cu_MemFree;
+    kerntopia::cu_MemcpyHtoD = cu_MemcpyHtoD;
+    kerntopia::cu_MemcpyDtoH = cu_MemcpyDtoH;
+    kerntopia::cu_GetErrorString = cu_GetErrorString;
     
     // Verify critical functions were loaded
     if (!cu_Init || !cu_DeviceGetCount || !cu_DeviceGet || !cu_CtxCreate || !cu_ModuleLoadData || !cu_GetErrorString) {

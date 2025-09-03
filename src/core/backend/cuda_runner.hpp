@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ikernel_runner.hpp"
+#include "cuda_memory.hpp"
 #include "../system/system_interrogator.hpp"
 #include <memory>
 #include <map>
@@ -22,56 +23,7 @@ struct CudaFunction;
 struct CudaEvent;
 struct CudaDeviceMemory;
 
-/**
- * @brief CUDA buffer implementation
- */
-class CudaBuffer : public IBuffer {
-public:
-    CudaBuffer(size_t size, Type type, Usage usage);
-    ~CudaBuffer();
-    
-    size_t GetSize() const override { return size_; }
-    Type GetType() const override { return type_; }
-    
-    void* Map() override;
-    void Unmap() override;
-    
-    Result<void> UploadData(const void* data, size_t size, size_t offset = 0) override;
-    Result<void> DownloadData(void* data, size_t size, size_t offset = 0) override;
-    
-    // CUDA-specific methods
-    CUdeviceptr GetDevicePointer() const { return device_ptr_; }
-    
-private:
-    size_t size_;
-    Type type_;
-    Usage usage_;
-    CUdeviceptr device_ptr_ = 0;
-    void* host_ptr_ = nullptr;
-    bool is_mapped_ = false;
-};
-
-/**
- * @brief CUDA texture implementation (simplified for compute)
- */
-class CudaTexture : public ITexture {
-public:
-    CudaTexture(const TextureDesc& desc);
-    ~CudaTexture();
-    
-    const TextureDesc& GetDesc() const override { return desc_; }
-    
-    Result<void> UploadData(const void* data, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
-    Result<void> DownloadData(void* data, size_t data_size, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
-    
-    // CUDA-specific methods
-    CUdeviceptr GetDevicePointer() const { return device_ptr_; }
-    
-private:
-    TextureDesc desc_;
-    CUdeviceptr device_ptr_ = 0;
-    size_t pitch_ = 0;
-};
+// Memory classes are now defined in cuda_memory.hpp
 
 /**
  * @brief CUDA backend kernel runner implementation

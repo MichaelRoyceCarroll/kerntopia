@@ -11,7 +11,9 @@ set(CORE_SOURCES
     # Backend abstraction
     backend/backend_factory.cpp
     backend/cuda_runner.cpp
+    backend/cuda_memory.cpp
     backend/vulkan_runner.cpp
+    backend/vulkan_memory.cpp
     backend/runtime_loader.cpp
     
     # Imaging pipeline
@@ -38,7 +40,9 @@ set(CORE_HEADERS
     backend/ikernel_runner.hpp
     backend/backend_factory.hpp
     backend/cuda_runner.hpp
+    backend/cuda_memory.hpp
     backend/vulkan_runner.hpp
+    backend/vulkan_memory.hpp
     backend/runtime_loader.hpp
     
     # Imaging pipeline
