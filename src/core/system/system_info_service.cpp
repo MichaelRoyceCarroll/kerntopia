@@ -21,25 +21,19 @@ void SystemInfoService::ShowSystemInfo(bool verbose, std::ostream& stream) {
     std::vector<std::string> available_runtimes = system_info.GetAvailableRuntimes();
     stream << "Available Backends: " << available_runtimes.size() << "\n";
     
-    // Initialize BackendFactory for device enumeration (legacy compatibility)
-    auto init_result = BackendFactory::Initialize();
-    if (!init_result) {
-        stream << "Warning: Failed to initialize backend system for device enumeration\n";
-    }
-    
     // Display CUDA runtime
     if (system_info.cuda_runtime.available) {
         DisplayRuntimeInfo(system_info.cuda_runtime, "CUDA", verbose, stream);
-        if (verbose && init_result) {
-            DisplayDevices(Backend::CUDA, verbose, stream);
+        if (verbose) {
+            DisplayDevicesFromSystemInfo(system_info.cuda_runtime.devices, stream);
         }
     }
     
     // Display Vulkan runtime
     if (system_info.vulkan_runtime.available) {
         DisplayRuntimeInfo(system_info.vulkan_runtime, "Vulkan", verbose, stream);
-        if (verbose && init_result) {
-            DisplayDevices(Backend::VULKAN, verbose, stream);
+        if (verbose) {
+            DisplayDevicesFromSystemInfo(system_info.vulkan_runtime.devices, stream);
         }
     }
     
@@ -59,10 +53,6 @@ void SystemInfoService::ShowSystemInfo(bool verbose, std::ostream& stream) {
     DisplaySlangInfo(system_info.slang_runtime, verbose, stream);
     
     stream << "\nFor detailed backend information, use: kerntopia info --verbose\n";
-    
-    if (init_result) {
-        BackendFactory::Shutdown();
-    }
 }
 
 void SystemInfoService::ShowBackendsOnly(bool verbose, std::ostream& stream) {
@@ -181,20 +171,16 @@ void SystemInfoService::DisplaySlangInfo(const RuntimeInfo& slang, bool verbose,
     }
 }
 
-void SystemInfoService::DisplayDevices(Backend backend, bool verbose, std::ostream& stream) {
-    auto devices_result = BackendFactory::GetDevices(backend);
-    if (devices_result) {
-        const auto& devices = *devices_result;
-        stream << "    Devices: " << devices.size() << "\n";
-        for (size_t i = 0; i < devices.size(); ++i) {
-            const auto& device = devices[i];
-            stream << "      [" << i << "] " << device.name;
-            if (device.total_memory_bytes > 0) {
-                double memory_gb = static_cast<double>(device.total_memory_bytes) / (1024.0 * 1024.0 * 1024.0);
-                stream << " (" << std::fixed << std::setprecision(1) << memory_gb << " GB)";
-            }
-            stream << "\n";
+void SystemInfoService::DisplayDevicesFromSystemInfo(const std::vector<DeviceInfo>& devices, std::ostream& stream) {
+    stream << "    Devices: " << devices.size() << "\n";
+    for (size_t i = 0; i < devices.size(); ++i) {
+        const auto& device = devices[i];
+        stream << "      [" << i << "] " << device.name;
+        if (device.total_memory_bytes > 0) {
+            double memory_gb = static_cast<double>(device.total_memory_bytes) / (1024.0 * 1024.0 * 1024.0);
+            stream << " (" << std::fixed << std::setprecision(1) << memory_gb << " GB)";
         }
+        stream << "\n";
     }
 }
 

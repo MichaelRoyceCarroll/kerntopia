@@ -1,7 +1,6 @@
 #pragma once
 
 #include "system_interrogator.hpp"
-#include "../backend/backend_factory.hpp"
 
 #include <iostream>
 #include <iomanip>
@@ -61,7 +60,7 @@ private:
     static void DisplayRuntimeInfo(const RuntimeInfo& runtime, const std::string& runtime_name, 
                                   bool verbose, std::ostream& stream);
     static void DisplaySlangInfo(const RuntimeInfo& slang, bool verbose, std::ostream& stream);
-    static void DisplayDevices(Backend backend, bool verbose, std::ostream& stream);
+    static void DisplayDevicesFromSystemInfo(const std::vector<DeviceInfo>& devices, std::ostream& stream);
     static void DisplayUnavailableBackends(const SystemInfo& system_info, bool verbose, std::ostream& stream);
 };
 
