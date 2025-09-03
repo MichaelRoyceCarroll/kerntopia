@@ -90,9 +90,9 @@ Result<void> Conv2dCore::Execute() {
         // Offset 16: output buffer pointer (8 bytes)  
         // Offset 32: constants buffer pointer (8 bytes)
         uint64_t params_buffer[5] = {0}; // 40 bytes total
-        params_buffer[0] = reinterpret_cast<uint64_t>(cuda_input->GetDevicePointer());     // Offset 0
-        params_buffer[2] = reinterpret_cast<uint64_t>(cuda_output->GetDevicePointer());    // Offset 16 (index 2 = 16/8)
-        params_buffer[4] = reinterpret_cast<uint64_t>(cuda_constants->GetDevicePointer()); // Offset 32 (index 4 = 32/8)
+        params_buffer[0] = static_cast<uint64_t>(cuda_input->GetDevicePointer());     // Offset 0
+        params_buffer[2] = static_cast<uint64_t>(cuda_output->GetDevicePointer());    // Offset 16 (index 2 = 16/8)
+        params_buffer[4] = static_cast<uint64_t>(cuda_constants->GetDevicePointer()); // Offset 32 (index 4 = 32/8)
         
         KERNTOPIA_LOG_DEBUG(LogComponent::TEST, "CUDA buffer pointers: input=0x" + 
                            std::to_string(params_buffer[0]) + ", output=0x" + 

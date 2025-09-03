@@ -124,6 +124,64 @@ else()
     message(WARNING "VULKAN_SDK environment variable not set - Vulkan backend will use system libraries")
 endif()
 
+# CUDA SDK Detection
+# Priority: 1) CUDA_SDK environment var, 2) System CUDA installation, 3) Common locations
+set(CUDA_HEADER_FOUND FALSE)
+
+# Option 1: CUDA_SDK environment variable (highest priority)
+if(DEFINED ENV{CUDA_SDK})
+    set(CUDA_SDK_PATH $ENV{CUDA_SDK})
+    set(CUDA_INCLUDE_DIR ${CUDA_SDK_PATH}/include)
+    if(EXISTS ${CUDA_INCLUDE_DIR}/cuda.h)
+        message(STATUS "Found CUDA SDK headers: ${CUDA_INCLUDE_DIR}")
+        set(CUDA_HEADER_FOUND TRUE)
+    endif()
+endif()
+
+# Option 2: System CUDA installation (skip /usr/include/linux/cuda.h as it's Apple CUDA)
+if(NOT CUDA_HEADER_FOUND)
+    # Check for NVIDIA CUDA in standard system locations
+    set(SYSTEM_CUDA_PATHS
+        /usr/include/cuda.h
+        /usr/local/include/cuda.h
+    )
+    
+    foreach(SYSTEM_PATH ${SYSTEM_CUDA_PATHS})
+        if(EXISTS ${SYSTEM_PATH})
+            get_filename_component(CUDA_INCLUDE_DIR ${SYSTEM_PATH} DIRECTORY)
+            message(STATUS "Found system CUDA headers: ${CUDA_INCLUDE_DIR}")
+            set(CUDA_HEADER_FOUND TRUE)
+            break()
+        endif()
+    endforeach()
+endif()
+
+# Option 3: Common CUDA SDK locations
+if(NOT CUDA_HEADER_FOUND)
+    set(CUDA_SEARCH_PATHS
+        /usr/local/cuda/include
+        /usr/local/cuda-12.9/targets/x86_64-linux/include
+        /usr/local/cuda-12/targets/x86_64-linux/include
+        /usr/local/cuda-11/targets/x86_64-linux/include
+    )
+    
+    foreach(SEARCH_PATH ${CUDA_SEARCH_PATHS})
+        if(EXISTS ${SEARCH_PATH}/cuda.h)
+            set(CUDA_INCLUDE_DIR ${SEARCH_PATH})
+            message(STATUS "Found CUDA headers at: ${CUDA_INCLUDE_DIR}")
+            set(CUDA_HEADER_FOUND TRUE)
+            break()
+        endif()
+    endforeach()
+endif()
+
+if(CUDA_HEADER_FOUND)
+    add_compile_definitions(KERNTOPIA_CUDA_SDK_AVAILABLE)
+    message(STATUS "CUDA SDK headers enabled - using: ${CUDA_INCLUDE_DIR}")
+else()
+    message(WARNING "CUDA SDK headers not found - using manual definitions fallback")
+endif()
+
 # Third-party include directories
 set(KERNTOPIA_THIRD_PARTY_DIR ${CMAKE_SOURCE_DIR}/third-party)
 include_directories(${KERNTOPIA_THIRD_PARTY_DIR}/stb)

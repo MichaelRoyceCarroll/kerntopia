@@ -8,34 +8,40 @@
 #include <algorithm>
 #include <cstring>
 
-namespace kerntopia {
+// CUDA Driver API - Require SDK headers
+#ifdef KERNTOPIA_CUDA_SDK_AVAILABLE
+#include <cuda.h>
+// Use official CUDA types and function signatures
+typedef CUresult (*cuInit_t)(unsigned int Flags);
+typedef CUresult (*cuDeviceGetCount_t)(int* count);
+typedef CUresult (*cuDeviceGet_t)(CUdevice* device, int ordinal);
+typedef CUresult (*cuDeviceGetName_t)(char* name, int len, CUdevice dev);
+typedef CUresult (*cuDeviceGetAttribute_t)(int* pi, CUdevice_attribute attrib, CUdevice dev);
+typedef CUresult (*cuCtxCreate_t)(CUcontext* pctx, unsigned int flags, CUdevice dev);
+typedef CUresult (*cuCtxDestroy_t)(CUcontext ctx);
+typedef CUresult (*cuCtxSetCurrent_t)(CUcontext ctx);
+typedef CUresult (*cuModuleLoadData_t)(CUmodule* module, const void* image);
+typedef CUresult (*cuModuleUnload_t)(CUmodule hmod);
+typedef CUresult (*cuModuleGetFunction_t)(CUfunction* hfunc, CUmodule hmod, const char* name);
+typedef CUresult (*cuModuleGetGlobal_t)(CUdeviceptr* dptr, size_t* bytes, CUmodule hmod, const char* name);
+typedef CUresult (*cuMemAlloc_t)(CUdeviceptr* dptr, size_t bytesize);
+typedef CUresult (*cuMemFree_t)(CUdeviceptr dptr);
+typedef CUresult (*cuMemcpyHtoD_t)(CUdeviceptr dstDevice, const void* srcHost, size_t ByteCount);
+typedef CUresult (*cuMemcpyDtoH_t)(void* dstHost, CUdeviceptr srcDevice, size_t ByteCount);
+typedef CUresult (*cuLaunchKernel_t)(CUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, 
+                                   unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
+                                   unsigned int sharedMemBytes, CUstream hStream, void** kernelParams, void** extra);
+typedef CUresult (*cuEventCreate_t)(CUevent* phEvent, unsigned int Flags);
+typedef CUresult (*cuEventDestroy_t)(CUevent hEvent);
+typedef CUresult (*cuEventRecord_t)(CUevent hEvent, CUstream hStream);
+typedef CUresult (*cuEventElapsedTime_t)(float* pMilliseconds, CUevent hStart, CUevent hEnd);
+typedef CUresult (*cuCtxSynchronize_t)(void);
+typedef CUresult (*cuGetErrorString_t)(CUresult error, const char** pStr);
+#else
+#error "CUDA SDK headers are required but not found. Please install CUDA SDK or set CUDA_SDK environment variable."
+#endif
 
-// CUDA Driver API function pointers (dynamically loaded)
-typedef int (*cuInit_t)(unsigned int Flags);
-typedef int (*cuDeviceGetCount_t)(int* count);
-typedef int (*cuDeviceGet_t)(int* device, int ordinal);
-typedef int (*cuDeviceGetName_t)(char* name, int len, int dev);
-typedef int (*cuDeviceGetAttribute_t)(int* pi, int attrib, int dev);
-typedef int (*cuCtxCreate_t)(void** pctx, unsigned int flags, int dev);
-typedef int (*cuCtxDestroy_t)(void* ctx);
-typedef int (*cuCtxSetCurrent_t)(void* ctx);
-typedef int (*cuModuleLoadData_t)(void** module, const void* image);
-typedef int (*cuModuleUnload_t)(void* hmod);
-typedef int (*cuModuleGetFunction_t)(void** hfunc, void* hmod, const char* name);
-typedef int (*cuModuleGetGlobal_t)(void** dptr, size_t* bytes, void* hmod, const char* name);
-typedef int (*cuMemAlloc_t)(void** dptr, size_t bytesize);
-typedef int (*cuMemFree_t)(void* dptr);
-typedef int (*cuMemcpyHtoD_t)(void* dstDevice, const void* srcHost, size_t ByteCount);
-typedef int (*cuMemcpyDtoH_t)(void* dstHost, const void* srcDevice, size_t ByteCount);
-typedef int (*cuLaunchKernel_t)(void* f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, 
-                               unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
-                               unsigned int sharedMemBytes, void* hStream, void** kernelParams, void** extra);
-typedef int (*cuEventCreate_t)(void** phEvent, unsigned int Flags);
-typedef int (*cuEventDestroy_t)(void* hEvent);
-typedef int (*cuEventRecord_t)(void* hEvent, void* hStream);
-typedef int (*cuEventElapsedTime_t)(float* pMilliseconds, void* hStart, void* hEnd);
-typedef int (*cuCtxSynchronize_t)(void);
-typedef int (*cuGetErrorString_t)(int error, const char** pStr);
+namespace kerntopia {
 
 // Static function pointers
 static cuInit_t cu_Init = nullptr;
@@ -64,70 +70,44 @@ static cuGetErrorString_t cu_GetErrorString = nullptr;
 
 static LibraryHandle cuda_driver_handle = nullptr;
 
-// CUDA error codes
-constexpr int CUDA_SUCCESS = 0;
-constexpr int CUDA_ERROR_INVALID_VALUE = 1;
-constexpr int CUDA_ERROR_OUT_OF_MEMORY = 2;
-constexpr int CUDA_ERROR_NOT_INITIALIZED = 3;
-constexpr int CUDA_ERROR_DEINITIALIZED = 4;
-constexpr int CUDA_ERROR_NO_DEVICE = 100;
-constexpr int CUDA_ERROR_INVALID_DEVICE = 101;
+// CUDA error codes and device attributes are now provided by the SDK headers
 
-// CUDA device attributes
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X = 2;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y = 3;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z = 4;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y = 6;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z = 7;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK = 8;
-constexpr int CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY = 9;
-constexpr int CU_DEVICE_ATTRIBUTE_WARP_SIZE = 10;
-constexpr int CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK = 12;
-constexpr int CU_DEVICE_ATTRIBUTE_CLOCK_RATE = 13;
-constexpr int CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT = 16;
-constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR = 75;
-constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR = 76;
-constexpr int CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36;
-constexpr int CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37;
-
-// CUDA context structures
+// CUDA context structures using proper CUDA types
 struct CudaContext {
-    void* handle = nullptr;
+    CUcontext handle = nullptr;
 };
 
 struct CudaModule {
-    void* handle = nullptr;
+    CUmodule handle = nullptr;
 };
 
 struct CudaFunction {
-    void* handle = nullptr;
+    CUfunction handle = nullptr;
 };
 
 struct CudaEvent {
-    void* handle = nullptr;
+    CUevent handle = nullptr;
 };
 
 
 // Helper function to convert CUDA error to string
-std::string CudaKernelRunner::CudaErrorToString(int cuda_error) {
+std::string CudaKernelRunner::CudaErrorToString(CUresult cuda_error) {
     if (cu_GetErrorString) {
         const char* error_str = nullptr;
         cu_GetErrorString(cuda_error, &error_str);
         return error_str ? std::string(error_str) : "Unknown CUDA error";
     }
-    return "CUDA error " + std::to_string(cuda_error);
+    return "CUDA error " + std::to_string(static_cast<int>(cuda_error));
 }
 
 // CudaBuffer implementation
 CudaBuffer::CudaBuffer(size_t size, Type type, Usage usage) 
     : size_(size), type_(type), usage_(usage) {
     
-    int result = cu_MemAlloc(&device_ptr_, size);
+    CUresult result = cu_MemAlloc(&device_ptr_, size);
     if (result != CUDA_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to allocate CUDA buffer: " + CudaKernelRunner::CudaErrorToString(result));
-        device_ptr_ = nullptr;
+        device_ptr_ = 0;
     }
 }
 
@@ -154,7 +134,7 @@ void CudaBuffer::Unmap() {
 }
 
 Result<void> CudaBuffer::UploadData(const void* data, size_t size, size_t offset) {
-    if (!device_ptr_) {
+    if (device_ptr_ == 0) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
                                      "CUDA buffer not allocated");
     }
@@ -164,7 +144,7 @@ Result<void> CudaBuffer::UploadData(const void* data, size_t size, size_t offset
                                      "Upload size exceeds buffer bounds");
     }
     
-    int result = cu_MemcpyHtoD(static_cast<uint8_t*>(device_ptr_) + offset, data, size);
+    CUresult result = cu_MemcpyHtoD(device_ptr_ + offset, data, size);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "CUDA memory upload failed: " + CudaKernelRunner::CudaErrorToString(result));
@@ -174,7 +154,7 @@ Result<void> CudaBuffer::UploadData(const void* data, size_t size, size_t offset
 }
 
 Result<void> CudaBuffer::DownloadData(void* data, size_t size, size_t offset) {
-    if (!device_ptr_) {
+    if (device_ptr_ == 0) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::MEMORY_ALLOCATION_FAILED,
                                      "CUDA buffer not allocated");
     }
@@ -184,7 +164,7 @@ Result<void> CudaBuffer::DownloadData(void* data, size_t size, size_t offset) {
                                      "Download size exceeds buffer bounds");
     }
     
-    int result = cu_MemcpyDtoH(data, static_cast<uint8_t*>(device_ptr_) + offset, size);
+    CUresult result = cu_MemcpyDtoH(data, device_ptr_ + offset, size);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "CUDA memory download failed: " + CudaKernelRunner::CudaErrorToString(result));
@@ -209,10 +189,10 @@ CudaTexture::CudaTexture(const TextureDesc& desc) : desc_(desc) {
     
     size_t total_size = desc.width * desc.height * desc.depth * bytes_per_pixel;
     
-    int result = cu_MemAlloc(&device_ptr_, total_size);
+    CUresult result = cu_MemAlloc(&device_ptr_, total_size);
     if (result != CUDA_SUCCESS) {
         KERNTOPIA_LOG_ERROR(LogComponent::BACKEND, "Failed to allocate CUDA texture: " + CudaKernelRunner::CudaErrorToString(result));
-        device_ptr_ = nullptr;
+        device_ptr_ = 0;
     }
 }
 
@@ -232,7 +212,7 @@ Result<void> CudaTexture::UploadData(const void* data, uint32_t mip_level, uint3
     size_t bytes_per_pixel = 4; // Simplified
     size_t total_size = desc_.width * desc_.height * desc_.depth * bytes_per_pixel;
     
-    int result = cu_MemcpyHtoD(device_ptr_, data, total_size);
+    CUresult result = cu_MemcpyHtoD(device_ptr_, data, total_size);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "CUDA texture upload failed: " + CudaKernelRunner::CudaErrorToString(result));
@@ -247,7 +227,7 @@ Result<void> CudaTexture::DownloadData(void* data, size_t data_size, uint32_t mi
                                      "CUDA texture not allocated");
     }
     
-    int result = cu_MemcpyDtoH(data, device_ptr_, data_size);
+    CUresult result = cu_MemcpyDtoH(data, device_ptr_, data_size);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "CUDA texture download failed: " + CudaKernelRunner::CudaErrorToString(result));
@@ -293,8 +273,8 @@ CudaKernelRunner::~CudaKernelRunner() {
 }
 
 Result<void> CudaKernelRunner::InitializeCudaContext() {
-    int device;
-    int result = cu_DeviceGet(&device, device_id_);
+    CUdevice device;
+    CUresult result = cu_DeviceGet(&device, device_id_);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_NOT_AVAILABLE,
                                      "Failed to get CUDA device: " + CudaErrorToString(result));
@@ -310,7 +290,7 @@ Result<void> CudaKernelRunner::InitializeCudaContext() {
 }
 
 Result<void> CudaKernelRunner::CreateTimingEvents() {
-    int result = cu_EventCreate(&start_event_->handle, 0);
+    CUresult result = cu_EventCreate(&start_event_->handle, 0);
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "Failed to create start event: " + CudaErrorToString(result));
@@ -356,7 +336,7 @@ DeviceInfo CudaKernelRunner::GetDeviceInfo() const {
     
     // Get device name using CUDA Driver API
     char name[256] = {0};
-    int result = cu_DeviceGetName(name, sizeof(name), device_id_);
+    CUresult result = cu_DeviceGetName(name, sizeof(name), device_id_);
     if (result == CUDA_SUCCESS) {
         info.name = std::string(name);
     } else {
@@ -420,7 +400,7 @@ Result<void> CudaKernelRunner::LoadKernel(const std::vector<uint8_t>& bytecode, 
     cu_CtxSetCurrent(context_->handle);
     
     // Load PTX module
-    int result = cu_ModuleLoadData(&module_->handle, bytecode.data());
+    CUresult result = cu_ModuleLoadData(&module_->handle, bytecode.data());
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "Failed to load PTX module: " + CudaErrorToString(result));
@@ -450,9 +430,9 @@ Result<void> CudaKernelRunner::SetSlangGlobalParameters(const void* params, size
     }
     
     // Get the SLANG_globalParams constant memory symbol
-    void* slang_params_ptr;
+    CUdeviceptr slang_params_ptr;
     size_t slang_params_size;
-    int result = cu_ModuleGetGlobal(&slang_params_ptr, &slang_params_size, module_->handle, "SLANG_globalParams");
+    CUresult result = cu_ModuleGetGlobal(&slang_params_ptr, &slang_params_size, module_->handle, "SLANG_globalParams");
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "Failed to get SLANG_globalParams symbol: " + CudaErrorToString(result));
@@ -520,7 +500,7 @@ Result<void> CudaKernelRunner::Dispatch(uint32_t groups_x, uint32_t groups_y, ui
     }
     
     // Launch kernel with 16x16 thread blocks (matching SLANG [numthreads(16, 16, 1)])
-    int result = cu_LaunchKernel(
+    CUresult result = cu_LaunchKernel(
         function_->handle,
         groups_x, groups_y, groups_z,  // Grid dimensions
         16, 16, 1,                     // Block dimensions
@@ -550,7 +530,7 @@ Result<void> CudaKernelRunner::Dispatch(uint32_t groups_x, uint32_t groups_y, ui
 }
 
 Result<void> CudaKernelRunner::WaitForCompletion() {
-    int result = cu_CtxSynchronize();
+    CUresult result = cu_CtxSynchronize();
     if (result != CUDA_SUCCESS) {
         return KERNTOPIA_RESULT_ERROR(void, ErrorCategory::BACKEND, ErrorCode::BACKEND_OPERATION_FAILED,
                                      "CUDA synchronization failed: " + CudaErrorToString(result));
@@ -719,14 +699,14 @@ static Result<void> InitializeCudaDriver() {
     
     // Initialize CUDA
     KERNTOPIA_LOG_DEBUG(LogComponent::BACKEND, "Calling cuInit(0)...");
-    int result = cu_Init(0);
+    CUresult result = cu_Init(0);
     if (result != CUDA_SUCCESS) {
         // Get detailed error information
         std::string error_msg = "CUDA initialization failed with error code " + std::to_string(result);
         
         if (cu_GetErrorString) {
             const char* error_str = nullptr;
-            int string_result = cu_GetErrorString(result, &error_str);
+            CUresult string_result = cu_GetErrorString(result, &error_str);
             if (string_result == CUDA_SUCCESS && error_str) {
                 error_msg += ": " + std::string(error_str);
             } else {

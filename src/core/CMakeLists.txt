@@ -84,12 +84,24 @@ target_include_directories(kerntopia_core
 # Add Vulkan headers if SDK is available
 if(DEFINED ENV{VULKAN_SDK})
     target_include_directories(kerntopia_core
-        PRIVATE
+        PUBLIC
             ${VULKAN_INCLUDE_DIR}
     )
     target_compile_definitions(kerntopia_core
-        PRIVATE
+        PUBLIC
             KERNTOPIA_VULKAN_SDK_AVAILABLE
+    )
+endif()
+
+# Add CUDA headers if found
+if(CUDA_HEADER_FOUND)
+    target_include_directories(kerntopia_core
+        PUBLIC
+            ${CUDA_INCLUDE_DIR}
+    )
+    target_compile_definitions(kerntopia_core
+        PUBLIC
+            KERNTOPIA_CUDA_SDK_AVAILABLE
     )
 endif()
 

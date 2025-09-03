@@ -18,6 +18,11 @@
 #include <vulkan/vulkan.h>
 #endif
 
+// Include CUDA headers for enhanced detection - ONLY if SDK is available
+#ifdef KERNTOPIA_CUDA_SDK_AVAILABLE
+#include <cuda.h>
+#endif
+
 namespace kerntopia {
 
 // Static member definitions

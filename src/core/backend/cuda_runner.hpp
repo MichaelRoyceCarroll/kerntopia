@@ -6,6 +6,13 @@
 #include <map>
 #include <chrono>
 
+// Require CUDA headers - fail compilation if not available
+#ifdef KERNTOPIA_CUDA_SDK_AVAILABLE
+#include <cuda.h>
+#else
+#error "CUDA SDK headers are required but not found. Please install CUDA SDK or set CUDA_SDK environment variable."
+#endif
+
 namespace kerntopia {
 
 // Forward declarations for CUDA types
@@ -33,13 +40,13 @@ public:
     Result<void> DownloadData(void* data, size_t size, size_t offset = 0) override;
     
     // CUDA-specific methods
-    void* GetDevicePointer() const { return device_ptr_; }
+    CUdeviceptr GetDevicePointer() const { return device_ptr_; }
     
 private:
     size_t size_;
     Type type_;
     Usage usage_;
-    void* device_ptr_ = nullptr;
+    CUdeviceptr device_ptr_ = 0;
     void* host_ptr_ = nullptr;
     bool is_mapped_ = false;
 };
@@ -58,11 +65,11 @@ public:
     Result<void> DownloadData(void* data, size_t data_size, uint32_t mip_level = 0, uint32_t array_layer = 0) override;
     
     // CUDA-specific methods
-    void* GetDevicePointer() const { return device_ptr_; }
+    CUdeviceptr GetDevicePointer() const { return device_ptr_; }
     
 private:
     TextureDesc desc_;
-    void* device_ptr_ = nullptr;
+    CUdeviceptr device_ptr_ = 0;
     size_t pitch_ = 0;
 };
 
@@ -95,7 +102,7 @@ public:
     Result<void> SetSlangGlobalParameters(const void* params, size_t size) override;
     
     // Static utility methods for error handling
-    static std::string CudaErrorToString(int cuda_error);
+    static std::string CudaErrorToString(CUresult cuda_error);
 
 private:
     int device_id_;
@@ -111,7 +118,7 @@ private:
     
     // Parameter management
     std::vector<uint8_t> parameter_buffer_;
-    std::map<int, void*> buffer_bindings_;  // binding -> device pointer
+    std::map<int, CUdeviceptr> buffer_bindings_;  // binding -> device pointer
     
     // Timing results
     TimingResults last_timing_;
