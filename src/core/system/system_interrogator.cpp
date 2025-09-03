@@ -691,16 +691,156 @@ void SystemInterrogator::CollectBuildMetadata(SystemInfo& info) {
 }
 
 std::vector<DeviceInfo> SystemInterrogator::EnumerateCudaDevices(const RuntimeInfo& cuda_info) {
-    // Simplified device enumeration - would use actual CUDA API in full implementation
     std::vector<DeviceInfo> devices;
-    if (cuda_info.available) {
-        // Placeholder device info
-        DeviceInfo device;
-        device.name = "CUDA Device (Detection Pending)";
-        device.backend_type = Backend::CUDA;
-        device.total_memory_bytes = 0;  // Would query actual device
-        devices.push_back(device);
+    
+    if (!cuda_info.available || cuda_info.primary_library_path.empty()) {
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "CUDA not available, skipping device enumeration");
+        return devices;
     }
+    
+#ifdef KERNTOPIA_CUDA_SDK_AVAILABLE
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Starting real CUDA device enumeration with SDK");
+    
+    // PHASE 1: Load CUDA library and get function pointers
+    RuntimeLoader& runtime_loader = RuntimeLoader::GetInstance();
+    auto load_result = runtime_loader.LoadLibrary(cuda_info.primary_library_path);
+    if (!load_result) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to load CUDA library for device enumeration: " + cuda_info.primary_library_path);
+        return devices;
+    }
+    
+    void* library_handle = *load_result;
+    
+    // Define CUDA function pointer types
+    typedef CUresult (*cuInit_t)(unsigned int Flags);
+    typedef CUresult (*cuDeviceGetCount_t)(int *count);
+    typedef CUresult (*cuDeviceGetName_t)(char *name, int len, CUdevice dev);
+    typedef CUresult (*cuDeviceTotalMem_t)(size_t *bytes, CUdevice dev);
+    typedef CUresult (*cuDeviceGetAttribute_t)(int *pi, CUdevice_attribute attrib, CUdevice dev);
+    typedef CUresult (*cuGetErrorString_t)(CUresult error, const char **pStr);
+    
+    // Get CUDA function pointers
+    cuInit_t cuInit = reinterpret_cast<cuInit_t>(
+        runtime_loader.GetSymbol(library_handle, "cuInit"));
+    cuDeviceGetCount_t cuDeviceGetCount = reinterpret_cast<cuDeviceGetCount_t>(
+        runtime_loader.GetSymbol(library_handle, "cuDeviceGetCount"));
+    cuDeviceGetName_t cuDeviceGetName = reinterpret_cast<cuDeviceGetName_t>(
+        runtime_loader.GetSymbol(library_handle, "cuDeviceGetName"));
+    cuDeviceTotalMem_t cuDeviceTotalMem = reinterpret_cast<cuDeviceTotalMem_t>(
+        runtime_loader.GetSymbol(library_handle, "cuDeviceTotalMem"));
+    cuDeviceGetAttribute_t cuDeviceGetAttribute = reinterpret_cast<cuDeviceGetAttribute_t>(
+        runtime_loader.GetSymbol(library_handle, "cuDeviceGetAttribute"));
+    cuGetErrorString_t cuGetErrorString = reinterpret_cast<cuGetErrorString_t>(
+        runtime_loader.GetSymbol(library_handle, "cuGetErrorString"));
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "CUDA function pointers loaded:");
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "  cuInit: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(cuInit)));
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "  cuDeviceGetCount: " + 
+                       std::to_string(reinterpret_cast<uintptr_t>(cuDeviceGetCount)));
+    
+    if (!cuInit || !cuDeviceGetCount || !cuDeviceGetName || !cuDeviceTotalMem || !cuDeviceGetAttribute) {
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, "Failed to get required CUDA device functions");
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "All CUDA functions loaded successfully");
+    
+    // PHASE 2: Initialize CUDA (temporary, similar to Vulkan instance creation)
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Initializing CUDA for device enumeration...");
+    CUresult result = cuInit(0);
+    if (result != CUDA_SUCCESS) {
+        std::string error_msg = "CUDA initialization failed for device enumeration with error code " + std::to_string(result);
+        
+        // Try to get detailed error message if available
+        if (cuGetErrorString) {
+            const char* error_str = nullptr;
+            CUresult string_result = cuGetErrorString(result, &error_str);
+            if (string_result == CUDA_SUCCESS && error_str) {
+                error_msg += ": " + std::string(error_str);
+            }
+        }
+        
+        KERNTOPIA_LOG_ERROR(LogComponent::SYSTEM, error_msg);
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "CUDA initialized successfully for device enumeration");
+    
+    // PHASE 3: Enumerate CUDA devices
+    int device_count = 0;
+    result = cuDeviceGetCount(&device_count);
+    if (result != CUDA_SUCCESS || device_count == 0) {
+        KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "No CUDA devices found or enumeration failed");
+        return devices;
+    }
+    
+    KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, "Found " + std::to_string(device_count) + " CUDA devices");
+    
+    // PHASE 4: Query each device and create DeviceInfo
+    for (int i = 0; i < device_count; ++i) {
+        CUdevice cuda_device = i; // CUDA uses simple integer device IDs
+        
+        // Get device name
+        char device_name[256] = {0};
+        result = cuDeviceGetName(device_name, sizeof(device_name), cuda_device);
+        if (result != CUDA_SUCCESS) {
+            KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "Failed to get name for CUDA device " + std::to_string(i));
+            continue;
+        }
+        
+        // Get total memory
+        size_t total_memory = 0;
+        result = cuDeviceTotalMem(&total_memory, cuda_device);
+        if (result != CUDA_SUCCESS) {
+            KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "Failed to get memory for CUDA device " + std::to_string(i));
+            total_memory = 0;
+        }
+        
+        // Get compute capability
+        int compute_major = 0, compute_minor = 0;
+        cuDeviceGetAttribute(&compute_major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, cuda_device);
+        cuDeviceGetAttribute(&compute_minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, cuda_device);
+        
+        // Get additional attributes
+        int multiprocessor_count = 0;
+        int max_threads_per_block = 0;
+        cuDeviceGetAttribute(&multiprocessor_count, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, cuda_device);
+        cuDeviceGetAttribute(&max_threads_per_block, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, cuda_device);
+        
+        // Create DeviceInfo
+        DeviceInfo device;
+        device.name = std::string(device_name);
+        device.backend_type = Backend::CUDA;
+        device.total_memory_bytes = total_memory;
+        device.device_id = i;
+        
+        // Set compute capability and additional info
+        device.compute_capability = std::to_string(compute_major) + "." + std::to_string(compute_minor);
+        device.multiprocessor_count = multiprocessor_count;
+        device.max_threads_per_group = max_threads_per_block; // CUDA calls them "threads per block", Vulkan "threads per group"
+        
+        devices.push_back(device);
+        
+        KERNTOPIA_LOG_DEBUG(LogComponent::SYSTEM, 
+            "CUDA Device " + std::to_string(i) + ": " + device.name + 
+            ", Memory: " + std::to_string(total_memory / (1024*1024)) + " MB" +
+            ", Compute: " + device.compute_capability);
+    }
+    
+    KERNTOPIA_LOG_INFO(LogComponent::SYSTEM, "Successfully enumerated " + std::to_string(devices.size()) + " CUDA devices");
+    
+#else
+    KERNTOPIA_LOG_WARNING(LogComponent::SYSTEM, "CUDA SDK not available, using placeholder device info");
+    
+    // Fallback placeholder (original behavior when SDK not available)
+    DeviceInfo device;
+    device.name = "CUDA Device (SDK Not Available)";
+    device.backend_type = Backend::CUDA;
+    device.total_memory_bytes = 0;
+    devices.push_back(device);
+#endif
+    
     return devices;
 }
 

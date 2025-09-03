@@ -100,7 +100,8 @@ std::string CudaKernelRunner::CudaErrorToString(CUresult cuda_error) {
 // Memory class implementations moved to cuda_memory.cpp
 
 // CudaKernelRunner implementation
-CudaKernelRunner::CudaKernelRunner(int device_id) : device_id_(device_id) {
+CudaKernelRunner::CudaKernelRunner(int device_id, const DeviceInfo& device_info) 
+    : device_id_(device_id), device_info_(device_info) {
     context_ = std::make_unique<CudaContext>();
     module_ = std::make_unique<CudaModule>();
     function_ = std::make_unique<CudaFunction>();
@@ -187,75 +188,8 @@ std::string CudaKernelRunner::GetDeviceName() const {
 }
 
 DeviceInfo CudaKernelRunner::GetDeviceInfo() const {
-    // CUDA backend handles its own device enumeration with full properties
-    DeviceInfo info;
-    info.device_id = device_id_;
-    info.backend_type = Backend::CUDA;
-    
-    if (!cuda_driver_handle) {
-        info.name = "CUDA Device (driver not loaded)";
-        return info;
-    }
-    
-    // Get device name using CUDA Driver API
-    char name[256] = {0};
-    CUresult result = cu_DeviceGetName(name, sizeof(name), device_id_);
-    if (result == CUDA_SUCCESS) {
-        info.name = std::string(name);
-    } else {
-        info.name = "CUDA Device (query failed)";
-    }
-    
-    // Get device attributes using CUDA Driver API
-    int value;
-    
-    // Compute capability
-    int major = 0, minor = 0;
-    cu_DeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device_id_);
-    cu_DeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device_id_);
-    info.compute_capability = std::to_string(major) + "." + std::to_string(minor);
-    
-    // Thread and memory limits
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, device_id_);
-    info.max_threads_per_group = static_cast<uint32_t>(value);
-    
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, device_id_);
-    info.max_shared_memory_bytes = static_cast<uint32_t>(value);
-    
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device_id_);
-    info.multiprocessor_count = static_cast<uint32_t>(value);
-    
-    // Clock rates
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_CLOCK_RATE, device_id_);
-    info.base_clock_mhz = static_cast<uint32_t>(value / 1000); // Convert from kHz to MHz
-    
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device_id_);
-    int memory_clock = value;
-    
-    cu_DeviceGetAttribute(&value, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device_id_);
-    int bus_width = value;
-    
-    // Estimate memory bandwidth: (memory_clock * 2) * (bus_width / 8) / 1e6
-    info.memory_bandwidth_gbps = static_cast<float>(memory_clock * 2) * (bus_width / 8) / 1e6f;
-    
-    // TODO: Query actual memory size using cuMemGetInfo when context is available
-    info.total_memory_bytes = 8ULL * 1024 * 1024 * 1024; // Default to 8GB
-    info.free_memory_bytes = info.total_memory_bytes;
-    
-    info.is_integrated = false; // Most discrete CUDA devices
-    info.supports_compute = true;
-    info.supports_graphics = false;
-    
-    // API version based on compute capability
-    if (major >= 8) {
-        info.api_version = "CUDA 11.0+";
-    } else if (major >= 7) {
-        info.api_version = "CUDA 10.0+";
-    } else {
-        info.api_version = "CUDA 9.0+";
-    }
-    
-    return info;
+    // Return cached device info from SystemInterrogator (follows Vulkan pattern)
+    return device_info_;
 }
 
 Result<void> CudaKernelRunner::LoadKernel(const std::vector<uint8_t>& bytecode, const std::string& entry_point) {
@@ -660,7 +594,7 @@ Result<std::unique_ptr<IKernelRunner>> CudaKernelRunnerFactory::CreateRunner(int
     }
     
     // Create and initialize runner (driver now properly initialized)
-    std::unique_ptr<IKernelRunner> runner = std::make_unique<CudaKernelRunner>(device_id);
+    std::unique_ptr<IKernelRunner> runner = std::make_unique<CudaKernelRunner>(device_id, devices[device_id]);
     
     KERNTOPIA_LOG_INFO(LogComponent::BACKEND, "Created CUDA kernel runner for device " + std::to_string(device_id) + 
                        " (" + devices[device_id].name + ")");

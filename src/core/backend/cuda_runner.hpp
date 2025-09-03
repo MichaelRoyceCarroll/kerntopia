@@ -30,7 +30,7 @@ struct CudaDeviceMemory;
  */
 class CudaKernelRunner : public IKernelRunner {
 public:
-    CudaKernelRunner(int device_id);
+    CudaKernelRunner(int device_id, const DeviceInfo& device_info);
     ~CudaKernelRunner();
     
     // IKernelRunner interface implementation
@@ -58,6 +58,7 @@ public:
 
 private:
     int device_id_;
+    DeviceInfo device_info_;  // Cached device info from SystemInterrogator
     std::unique_ptr<CudaContext> context_;
     std::unique_ptr<CudaModule> module_;
     std::unique_ptr<CudaFunction> function_;
