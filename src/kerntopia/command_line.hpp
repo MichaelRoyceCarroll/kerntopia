@@ -3,6 +3,7 @@
 #include "core/common/test_params.hpp"
 #include <vector>
 #include <string>
+#include <set>
 
 namespace kerntopia {
 
@@ -69,6 +70,16 @@ public:
     bool IsBackendSpecified() const { return backend_specified_; }
     
     /**
+     * @brief Check if log levels were explicitly specified
+     */
+    bool IsLogLevelsSpecified() const { return log_levels_specified_; }
+    
+    /**
+     * @brief Get specified log levels
+     */
+    const std::set<int>& GetLogLevels() const { return log_levels_; }
+    
+    /**
      * @brief Get help text
      */
     std::string GetHelpText() const;
@@ -81,6 +92,8 @@ private:
     bool ParseTarget(const std::string& target_str);
     bool ParseMode(const std::string& mode_str);
     bool ParseDevice(const std::string& device_str);
+    void ParseLogLevels(const std::string& value);
+    int ParseSingleLogLevel(const std::string& token);
     void SetDefaultProfileTarget();
     void PrintUsage() const;
     
@@ -95,6 +108,10 @@ private:
     bool help_requested_ = false;
     bool backend_specified_ = false;
     bool device_specified_ = false;
+    bool log_levels_specified_ = false;
+    
+    // Log level configuration
+    std::set<int> log_levels_;
 };
 
 } // namespace kerntopia

@@ -60,16 +60,17 @@ void ListAvailable() {
     std::cout << "===============\n\n";
     
     std::cout << "Image Processing:\n";
-    std::cout << "  • conv2d       - 2D Convolution with configurable kernels\n";
-    std::cout << "  • bilateral    - Edge-preserving bilateral filter\n\n";
+    std::cout << "  ✅ conv2d       - 2D Convolution with configurable kernels [IMPLEMENTED]\n";
+    std::cout << "  ⚠️  bilateral    - Edge-preserving bilateral filter [PLACEHOLDER - Not Implemented]\n\n";
     
     std::cout << "Linear Algebra:\n";
-    std::cout << "  • reduction    - Parallel reduction (sum/max/min)\n";
-    std::cout << "  • transpose    - Matrix transpose with memory coalescing\n\n";
+    std::cout << "  ⚠️  reduction    - Parallel reduction (sum/max/min) [PLACEHOLDER - Not Implemented]\n";
+    std::cout << "  ⚠️  transpose    - Matrix transpose with memory coalescing [PLACEHOLDER - Not Implemented]\n\n";
     
     std::cout << "Examples:\n";
-    std::cout << "  • vector_add   - Template for adding new kernels\n\n";
+    std::cout << "  ⚠️  vector_add   - Template for adding new kernels [PLACEHOLDER - Not Implemented]\n\n";
     
+    std::cout << "Currently only 'conv2d' is fully implemented and ready for testing.\n";
     std::cout << "Run 'kerntopia info' to see available backends and devices.\n";
 }
 
@@ -245,19 +246,66 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
 }
 
 /**
+ * @brief Run in pure GTest mode - bypass all Kerntopia command logic
+ */
+int RunPureGTestMode(int argc, char* argv[]) {
+    std::cout << "Running in GTest mode...\n\n";
+    
+    // Initialize logging with same default configuration as regular mode (clean output)
+    Logger::Config log_config;
+    log_config.min_level = LogLevel::WARNING;  // Match regular mode default
+    log_config.log_to_console = true;
+    Logger::Initialize(log_config);
+    
+    // Initialize backend factory for tests
+    auto init_result = BackendFactory::Initialize();
+    if (!init_result.HasValue()) {
+        std::cerr << "Error: Failed to initialize backends: " << init_result.GetError().message << "\n";
+        return 1;
+    }
+    
+    // Initialize GTest with all provided arguments
+    ::testing::InitGoogleTest(&argc, argv);
+    
+    // Run tests
+    int result = RUN_ALL_TESTS();
+    
+    // Cleanup
+    BackendFactory::Shutdown();
+    Logger::Shutdown();
+    
+    return result;
+}
+
+/**
  * @brief Parse command line arguments
  */
 int main(int argc, char* argv[]) {
     PrintBanner();
+    
+    // Early detection: Check for any GTest arguments
+    bool has_gtest_args = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg.find("--gtest_") == 0) {
+            has_gtest_args = true;
+            break;
+        }
+    }
+    
+    // If GTest arguments detected, switch to pure GTest mode
+    if (has_gtest_args) {
+        return RunPureGTestMode(argc, argv);
+    }
     
     if (argc < 2) {
         PrintUsage();
         return 1;
     }
     
-    // Initialize logging with default configuration
+    // Initialize logging with new default configuration (clean output)
     Logger::Config log_config;
-    log_config.min_level = LogLevel::INFO;
+    log_config.min_level = LogLevel::WARNING;  // Changed from INFO to WARNING
     log_config.log_to_console = true;
     Logger::Initialize(log_config);
     
@@ -299,6 +347,32 @@ int main(int argc, char* argv[]) {
             // Get parsed configuration
             auto test_config = parser.GetTestConfig();
             auto test_names = parser.GetTestNames();
+            
+            // Apply user-specified log levels (override default)
+            if (parser.IsLogLevelsSpecified()) {
+                auto levels = parser.GetLogLevels();
+                
+                if (levels.count(-1)) {
+                    // Level -1: Complete silence
+                    log_config.log_to_console = false;
+                    Logger::GetInstance().SetConsoleOutput(false);
+                } else {
+                    // Determine minimum level from specified levels
+                    // Level 0: WARNING+ (normal/default)
+                    // Level 1: INFO+ 
+                    // Level 2: DEBUG+
+                    LogLevel min_level = LogLevel::WARNING; // fallback default
+                    if (levels.count(2)) {
+                        min_level = LogLevel::DBG;
+                    } else if (levels.count(1)) {
+                        min_level = LogLevel::INFO;
+                    } else if (levels.count(0)) {
+                        min_level = LogLevel::WARNING;
+                    }
+                    
+                    Logger::GetInstance().SetLogLevel(min_level);
+                }
+            }
             
             // Initialize backend factory
             auto init_result = BackendFactory::Initialize();

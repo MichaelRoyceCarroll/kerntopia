@@ -1,6 +1,8 @@
 #include "command_line.hpp"
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 namespace kerntopia {
 
@@ -34,7 +36,7 @@ bool CommandLineParser::Parse(int argc, char* argv[]) {
         
         std::string kernel_or_all = argv[2];
         if (kernel_or_all == "all") {
-            test_names_ = {"vector_add", "conv2d", "bilateral_filter", "parallel_reduction", "matrix_transpose"};
+            test_names_ = {"conv2d"}; // Only implemented test
         } else {
             test_names_ = {kernel_or_all};
         }
@@ -100,6 +102,16 @@ bool CommandLineParser::ParseOptions(int argc, char* argv[]) {
         }
         else if (arg == "--verbose" || arg == "-v") {
             verbose_ = true;
+        }
+        else if (arg == "--logger" || arg == "--log" || arg == "--log-level") {
+            if (i + 1 >= argc) {
+                // Default to level 0 (WARNING+) if no argument provided
+                log_levels_.insert(0);
+            } else {
+                std::string value = argv[++i];
+                ParseLogLevels(value);
+            }
+            log_levels_specified_ = true;
         }
         else {
             std::cerr << "Error: Unknown option '" << arg << "'\n";
@@ -232,6 +244,50 @@ void CommandLineParser::SetDefaultProfileTarget() {
     }
 }
 
+void CommandLineParser::ParseLogLevels(const std::string& value) {
+    // Handle comma separation: "1,2" or "info,debug"
+    std::stringstream ss(value);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        // Trim whitespace
+        token.erase(0, token.find_first_not_of(" \t"));
+        token.erase(token.find_last_not_of(" \t") + 1);
+        
+        int level = ParseSingleLogLevel(token);
+        if (level >= -1 && level <= 2) {
+            log_levels_.insert(level);
+        } else {
+            std::cerr << "Warning: Invalid log level '" << token << "'. Valid: -1,0,1,2 or normal,info,debug\\n";
+        }
+    }
+    
+    // If no valid levels were parsed, default to level 0
+    if (log_levels_.empty()) {
+        log_levels_.insert(0);
+    }
+}
+
+int CommandLineParser::ParseSingleLogLevel(const std::string& token) {
+    // Try numeric first (including negative)
+    if (!token.empty() && (std::isdigit(token[0]) || token[0] == '-')) {
+        try {
+            return std::stoi(token);
+        } catch (const std::exception&) {
+            return 0; // Default to normal on parse error
+        }
+    }
+    
+    // Handle word alternatives (case-insensitive)
+    std::string lower_token = token;
+    std::transform(lower_token.begin(), lower_token.end(), lower_token.begin(), ::tolower);
+    
+    if (lower_token == "normal") return 0;
+    if (lower_token == "info") return 1;
+    if (lower_token == "debug" || lower_token == "dbg") return 2;
+    
+    return 0; // Default to normal
+}
+
 std::string CommandLineParser::GetHelpText() const {
     std::stringstream ss;
     ss << "Kerntopia v0.1.0 - SLANG-Centric GPU Benchmarking Suite\n\n";
@@ -247,13 +303,17 @@ std::string CommandLineParser::GetHelpText() const {
     ss << "  --mode, -m <mode>           Test mode (functional, performance)\n";
     ss << "  --jit                       Use just-in-time compilation\n";
     ss << "  --precompiled               Use precompiled kernels (default)\n";
-    ss << "  --verbose, -v               Verbose output\n\n";
+    ss << "  --verbose, -v               Verbose output\n";
+    ss << "  --logger, --log, --log-level <levels>   Logging control:\n";
+    ss << "                                -1=silent, 0=normal (default), 1=info, 2=debug\n";
+    ss << "                                Words: normal, info, debug/dbg\n";
+    ss << "                                Comma-separated: 1,2 or info,debug\n\n";
     ss << "Examples:\n";
     ss << "  kerntopia info --verbose\n";
     ss << "  kerntopia run conv2d --backend vulkan --device 0 --profile glsl_450 --target spirv\n";
-    ss << "  kerntopia run all --backend cuda --device 1 --profile cuda_sm_7_0 --target ptx\n";
     ss << "  kerntopia run conv2d --backend cuda --device 0 --profile cuda_sm_7_0 --target ptx --jit\n\n";
-    ss << "Available kernels: vector_add, conv2d, bilateral_filter, parallel_reduction, matrix_transpose\n";
+    ss << "Currently implemented: conv2d\n";
+    ss << "Planned kernels: vector_add, bilateral_filter, parallel_reduction, matrix_transpose\n";
     return ss.str();
 }
 
