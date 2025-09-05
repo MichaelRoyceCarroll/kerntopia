@@ -172,6 +172,7 @@ bool RunTestsBasic(const std::vector<std::string>& test_names, const TestConfigu
             
             // Add device filtering if device was explicitly specified via --device flag
             // Test names include device ID like: CUDA_CUDA_SM_7_0_D0, CUDA_CUDA_SM_7_0_D1
+            // Future: Dynamic device detection will replace hardcoded device IDs
             if (device_specified) {
                 gtest_filter += "D" + std::to_string(config.device_id) + "*";
             }

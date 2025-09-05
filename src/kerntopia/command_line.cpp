@@ -344,7 +344,7 @@ std::string CommandLineParser::GetHelpText() const {
     ss << "  # GTest mode for advanced filtering\n";
     ss << "  kerntopia --gtest_list_tests\n";
     ss << "  kerntopia --gtest_filter=\"*CUDA*\"\n";
-    ss << "  kerntopia --gtest_filter=\"*Conv2D*VULKAN*D0*\"\n\n";
+    ss << "  kerntopia --gtest_filter=\"*Conv2D*VULKAN*D0*\"  # D0 = device 0 (future: dynamic device detection)\n\n";
     
     ss << "TEST STATUS:\n";
     ss << "  ✅ conv2d           - 2D Convolution (IMPLEMENTED)\n";
@@ -395,7 +395,7 @@ std::string CommandLineParser::GetRunHelpText() const {
     ss << "EXAMPLES:\n";
     ss << "  kerntopia run conv2d                                    # Use best available backend\n";
     ss << "  kerntopia run conv2d --backend vulkan                   # Force Vulkan\n";
-    ss << "  kerntopia run conv2d --backend cuda --device 1          # CUDA device 1\n";
+    ss << "  kerntopia run conv2d --backend cuda --device 1          # CUDA device 1 (future: dynamic device enumeration)\n";
     ss << "  kerntopia run all --mode performance --logger info      # Performance testing\n\n";
     ss << "BACKEND-SPECIFIC EXAMPLES:\n";
     ss << "  # CUDA with specific compute capability\n";

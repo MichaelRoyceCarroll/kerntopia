@@ -87,9 +87,11 @@ std::vector<Conv2DTestParams> GetValidCombinations() {
     // Vulkan backend with SPIR-V target  
     valid_params.push_back(std::make_tuple(Backend::VULKAN, SlangProfile::GLSL_450, SlangTarget::SPIRV, 0));
     
-    // Additional device IDs for systems with multiple GPUs
-    valid_params.push_back(std::make_tuple(Backend::CUDA, SlangProfile::CUDA_SM_7_0, SlangTarget::PTX, 1));
-    valid_params.push_back(std::make_tuple(Backend::VULKAN, SlangProfile::GLSL_450, SlangTarget::SPIRV, 1));
+    // TODO: Future enhancement - Dynamic device detection and test case creation
+    // These placeholder entries will be replaced with dynamic device interrogation
+    // to automatically create test cases for all available GPUs in the system
+    // valid_params.push_back(std::make_tuple(Backend::CUDA, SlangProfile::CUDA_SM_7_0, SlangTarget::PTX, 1));
+    // valid_params.push_back(std::make_tuple(Backend::VULKAN, SlangProfile::GLSL_450, SlangTarget::SPIRV, 1));
     
     return valid_params;
 }

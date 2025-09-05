@@ -14,7 +14,7 @@ void PrintUsage() {
     std::cout << "  --help              Show this help message\n";
     std::cout << "Examples:\n";
     std::cout << "  kerntopia-conv2d --backend cuda --device 0\n";
-    std::cout << "  kerntopia-conv2d --backend vulkan --device 1\n";
+    std::cout << "  kerntopia-conv2d --backend vulkan --device 1  # Future: dynamic device enumeration\n";
 }
 
 int main(int argc, char* argv[]) {
