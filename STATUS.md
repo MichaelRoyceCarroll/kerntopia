@@ -1,70 +1,76 @@
 # Kerntopia Development Status
 
-**Date:** 2025-09-02 12:36 Pacific Time
+**Date:** 20250904 18:13 Pacific Time
 
 ## Current Plan
 
-**MAJOR ARCHITECTURAL BREAKTHROUGH: VULKAN SYSTEMINTERROGATOR MIGRATION COMPLETE**
-- ✅ **Architectural Consistency Achieved** - Vulkan backend now follows same SystemInterrogator pattern as CUDA  
-- ✅ **Real Vulkan Device Detection** - Shows actual device info: `llvmpipe (LLVM 19.1.1, 256 bits) (31.0 GB)`
-- ✅ **Code Redundancy Eliminated** - Removed duplicate library loading and detection logic
-- ✅ **Compatibility Layer Implemented** - LoadVulkanLoader now uses SystemInterrogator's cached library handle
-- ✅ **Performance Validation Passed** - Both CUDA and Vulkan execute flawlessly (~2ms conv2d timing)
+**USER EXPERIENCE & INTERFACE IMPROVEMENTS COMPLETE**
+- ✅ **Logging System Fixed** - Resolved memory leak issues from CUDA driver initialization failures
+- ✅ **Help System Overhaul** - Comprehensive, accurate help with context-sensitive support
+- ✅ **GTest Integration Documented** - Full documentation of --gtest_filter and --gtest_list_tests capabilities  
+- ✅ **CPU Backend Clarified** - Removed misleading "CPU (Software)" from available backends list
 
-**Status: Unified Backend Architecture Complete** - SystemInterrogator now provides consistent runtime detection and device enumeration for both CUDA and Vulkan backends.
+**Status: User Interface Polish Complete** - All help output accurately reflects current implementation, logging works consistently across execution modes, and system info correctly represents available vs placeholder backends.
 
 ## What's implemented/working
 
+- ✅ **COMPREHENSIVE HELP SYSTEM** - Unified help architecture with context-sensitive support
+  - Main help: `kerntopia --help` shows complete feature overview
+  - Context help: `kerntopia run --help`, `kerntopia info --help`, `kerntopia list --help`
+  - GTest integration: Full documentation of filtering and test discovery
+  - Accurate examples: Real usage patterns with current kernel status
+- ✅ **LOGGING SYSTEM CONSISTENCY** - Fixed cross-mode logging behavior  
+  - Regular mode: Clean WARNING+ output by default, `--logger` toggles work
+  - GTest mode: Same clean logging behavior, no more INFO spam
+  - Level system: -1=silent, 0=normal, 1=info, 2=debug with word alternatives
+- ✅ **CUDA MEMORY LEAK RESOLUTION** - Fixed WSL2 CUDA driver initialization issues
+  - Root cause: CUDA driver internal allocations during failed cuInit() calls
+  - Solution: Not our bug - external driver issue, resolved by CUDA SDK update
+- ✅ **CPU BACKEND CLARIFICATION** - Removed misleading placeholder backend
+  - System info no longer shows "CPU (Software)" as available
+  - Backend properly marked as placeholder for future development
+  - Clear distinction from Vulkan-exposed backends
+- ✅ **JIT MODE DOCUMENTATION** - Marked --jit flag as "NOT IMPLEMENTED" while preserving toggle
 - ✅ **UNIFIED SYSTEMINTERROGATOR ARCHITECTURE** - Both CUDA and Vulkan backends use consistent runtime detection pattern
-- ✅ **REAL VULKAN DEVICE ENUMERATION** - Actual Vulkan API calls provide proper device information instead of placeholders
-- ✅ **COMPATIBILITY LAYER COMPLETE** - LoadVulkanLoader functions seamlessly with SystemInterrogator's cached library handle
-- ✅ **CODE REDUNDANCY ELIMINATED** - Removed duplicate Vulkan detection logic and static library handles from vulkan_runner.cpp
-- ✅ **ENHANCED INFO OUTPUT** - `kerntopia info --verbose` shows real Vulkan device details: "llvmpipe (LLVM 19.1.1, 256 bits)"
-- ✅ **PERFORMANCE MAINTAINED** - Both CUDA (~instant) and Vulkan (~2ms) conv2d execution times preserved after migration
-- ✅ **VULKAN DARK IMAGE BUG RESOLVED** - float4x4 matrix approach fixes std140 layout inconsistencies between CUDA/Vulkan
+- ✅ **REAL VULKAN DEVICE ENUMERATION** - Actual Vulkan API calls provide proper device information
+- ✅ **VULKAN DARK IMAGE BUG RESOLVED** - float4x4 matrix approach fixes std140 layout inconsistencies
 - ✅ **PERFECT CROSS-BACKEND CONSISTENCY** - CUDA and Vulkan produce identical, bright, correctly blurred images
-- ✅ **SLANG MEMORY LAYOUT EXPERTISE** - Deep understanding of std140 rules and backend-specific translation differences
-- ✅ **FILENAME PREFIXING SYSTEM** - Output disambiguation with backend_profile_target_device naming scheme
-- ✅ **ROBUST CONSTANTS BUFFER HANDLING** - 72-byte structure with float4x4 matrix + dimensions works across all backends
 - ✅ **CUDA BACKEND VERIFICATION** - Working perfectly, generates correct blurred output images
 - ✅ **VULKAN BACKEND FUNCTIONAL** - Complete transformation from black output to perfect Gaussian blur
-- ✅ **REAL GPU COMPUTE PIPELINE** - Both backends executing authentic SLANG-compiled kernels with consistent results
 
 ## What's in progress  
 
-- Future kernel implementations (vector_add, etc.)
-- Additional backend optimizations
+- Future kernel implementations (vector_add, bilateral_filter, etc.)
+- Additional backend optimizations and features
 
 ## Immediate next tasks
 
-- Implement additional kernels using proven SystemInterrogator pattern and float4x4 matrix approach
-- Continue expanding kernel roster (vector_add, matrix multiplication, etc.)  
-- Explore advanced Vulkan/CUDA features leveraging unified architecture
-- Consider performance benchmarking suite with consistent device detection
+- Implement additional kernels using proven SystemInterrogator pattern
+- Continue expanding kernel roster with proper help documentation
+- Explore performance benchmarking suite capabilities
+- Consider standalone executable help system consistency
 
 ## Key decisions made
 
-- **UNIFIED SYSTEMINTERROGATOR PATTERN** - Both CUDA and Vulkan backends follow identical runtime detection architecture
-- **COMPATIBILITY LAYER APPROACH** - Preserve existing LoadVulkanLoader functionality while using SystemInterrogator's library management
-- **REAL DEVICE ENUMERATION** - Use actual Vulkan API calls (vkEnumeratePhysicalDevices) instead of placeholder data
-- **CACHED LIBRARY HANDLE STRATEGY** - Single SystemInterrogator library handle shared across detection and runtime phases
+- **UNIFIED HELP ARCHITECTURE** - Single source of truth in CommandLineParser::GetHelpText() with context-sensitive extensions
+- **LOGGING CONSISTENCY** - Same clean default behavior across regular mode and GTest mode
+- **ACCURATE FEATURE DOCUMENTATION** - Help reflects current implementation state, not planned features
+- **PLACEHOLDER TRANSPARENCY** - Clear marking of unimplemented features (JIT, CPU backend) while preserving development hooks
+- **GTEST INTEGRATION DOCUMENTATION** - Full coverage of advanced filtering capabilities for power users
+- **MEMORY LEAK ATTRIBUTION** - Identified and documented external CUDA driver issues vs application code
 - **FLOAT4X4 MATRIX APPROACH** - Use `float4x4` in SLANG and `float[4][4]` in C++ to avoid std140 array stride issues
-- **CONSISTENT INDEXING** - `filter_kernel[dy + 1][dx + 1]` syntax works identically across CUDA and Vulkan  
-- **MEMORY LAYOUT STRATEGY** - Matrices have well-defined std140 behavior vs arrays with problematic stride rules
-- **DEBUG METHODOLOGY** - PTX/SPIR-V disassembly analysis revealed fundamental SLANG translation differences
-- **FILENAME PREFIXING** - Backend-specific output naming prevents result confusion during debugging
+- **UNIFIED SYSTEMINTERROGATOR PATTERN** - Both CUDA and Vulkan backends follow identical runtime detection architecture
 
 ## Any blockers encountered
 
 ### Recently Resolved
-- ✅ **VULKAN SYSTEMINTERROGATOR BYPASS** - Root cause: Vulkan backend used global-space detection instead of SystemInterrogator. Fixed with unified architecture migration.
-- ✅ **ARCHITECTURAL INCONSISTENCY** - CUDA (828 lines, clean) vs Vulkan (1880 lines, bloated). Resolved with compatibility layer approach.
-- ✅ **REDUNDANT DETECTION CODE** - Vulkan maintained separate library loading and device enumeration. Eliminated by using SystemInterrogator pattern.
-- ✅ **PLACEHOLDER DEVICE INFORMATION** - Vulkan showed generic "Vulkan Device" instead of actual hardware info. Fixed with real vkEnumeratePhysicalDevices calls.
-- ✅ **VULKAN DARK IMAGE BUG** - Root cause: SLANG std140 array stride differences between CUDA/Vulkan. Fixed with float4x4 matrix.
-- ✅ **MEMORY LAYOUT INCONSISTENCIES** - SLANG translated arrays differently per backend. Matrix approach provides consistent layout.
-- ✅ **8X DARKNESS MYSTERY** - Systematic debugging revealed constants buffer alignment issues and std140 translation problems.
-- ✅ **CROSS-BACKEND VERIFICATION** - Both CUDA and Vulkan now produce identical results using same shader source code.
+- ✅ **GTEST MODE LOGGING INCONSISTENCY** - GTest mode bypassed logging configuration. Fixed by adding Logger::Initialize() to RunPureGTestMode()
+- ✅ **MISLEADING HELP OUTPUT** - Outdated help text with missing/incorrect features. Fixed with comprehensive help system overhaul
+- ✅ **CPU BACKEND CONFUSION** - Placeholder backend shown as available. Fixed by proper marking and removal from available list
+- ✅ **CUDA MEMORY LEAKS** - WSL2 driver initialization failures. Resolved by CUDA SDK update (external issue)
+- ✅ **JIT MODE CONFUSION** - Toggle existed but wasn't implemented. Fixed by clear "NOT IMPLEMENTED" marking
+- ✅ **VULKAN SYSTEMINTERROGATOR BYPASS** - Root cause: Vulkan backend used global-space detection instead of SystemInterrogator
+- ✅ **VULKAN DARK IMAGE BUG** - Root cause: SLANG std140 array stride differences between CUDA/Vulkan
 
 ### Minor Outstanding Issues
-- None currently - all major architectural and functional issues resolved
+- None currently - all major user experience and functional issues resolved
