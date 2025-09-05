@@ -24,25 +24,11 @@ void PrintBanner() {
 }
 
 /**
- * @brief Print usage information
+ * @brief Print comprehensive help information
  */
-void PrintUsage() {
-    std::cout << "Usage: kerntopia <command> [options]\n\n";
-    std::cout << "Commands:\n";
-    std::cout << "  run <tests>     Run specified tests (or 'all' for all tests)\n";
-    std::cout << "  info            Show system information\n";
-    std::cout << "  list            List available tests and backends\n";
-    std::cout << "  help            Show this help message\n\n";
-    std::cout << "Options:\n";
-    std::cout << "  --backend <name>    Target backend (cuda, vulkan, cpu)\n";
-    std::cout << "  --device <id>       Target device ID\n";
-    std::cout << "  --mode <mode>       Test mode (functional, performance)\n";
-    std::cout << "  --verbose           Enable verbose output\n";
-    std::cout << "  --log-file <path>   Log to file\n";
-    std::cout << "\nExamples:\n";
-    std::cout << "  kerntopia run all\n";
-    std::cout << "  kerntopia run conv2d --backend cuda --mode performance\n";
-    std::cout << "  kerntopia info --verbose\n";
+void PrintHelp() {
+    CommandLineParser parser;
+    std::cout << parser.GetHelpText();
 }
 
 /**
@@ -299,7 +285,7 @@ int main(int argc, char* argv[]) {
     }
     
     if (argc < 2) {
-        PrintUsage();
+        PrintHelp();
         return 1;
     }
     
@@ -313,24 +299,65 @@ int main(int argc, char* argv[]) {
     
     try {
         if (command == "help" || command == "--help" || command == "-h") {
-            PrintUsage();
+            PrintHelp();
         }
         else if (command == "info") {
             bool verbose = false;
+            bool help_requested = false;
             for (int i = 2; i < argc; ++i) {
-                if (std::string(argv[i]) == "--verbose" || std::string(argv[i]) == "-v") {
+                std::string arg = argv[i];
+                if (arg == "--verbose" || arg == "-v") {
                     verbose = true;
+                } else if (arg == "--help" || arg == "-h") {
+                    help_requested = true;
                 }
             }
-            ShowSystemInfo(verbose);
+            
+            if (help_requested) {
+                CommandLineParser parser;
+                std::cout << parser.GetInfoHelpText();
+            } else {
+                ShowSystemInfo(verbose);
+            }
         }
         else if (command == "list") {
-            ListAvailable();
+            bool help_requested = false;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "--help" || arg == "-h") {
+                    help_requested = true;
+                    break;
+                }
+            }
+            
+            if (help_requested) {
+                CommandLineParser parser;
+                std::cout << parser.GetListHelpText();
+            } else {
+                ListAvailable();
+            }
         }
         else if (command == "run") {
+            // Check for help first, even if no test specified
+            bool help_requested = false;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "--help" || arg == "-h") {
+                    help_requested = true;
+                    break;
+                }
+            }
+            
+            if (help_requested) {
+                CommandLineParser parser;
+                std::cout << parser.GetRunHelpText();
+                return 0;
+            }
+            
             if (argc < 3) {
                 std::cerr << "Error: No tests specified\n";
-                std::cerr << "Usage: kerntopia run <tests> [options]\n";
+                CommandLineParser parser;
+                std::cout << parser.GetRunHelpText();
                 return 1;
             }
             
@@ -391,7 +418,7 @@ int main(int argc, char* argv[]) {
         }
         else {
             std::cerr << "Error: Unknown command '" << command << "'\n";
-            PrintUsage();
+            PrintHelp();
             return 1;
         }
     }

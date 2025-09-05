@@ -291,29 +291,136 @@ int CommandLineParser::ParseSingleLogLevel(const std::string& token) {
 std::string CommandLineParser::GetHelpText() const {
     std::stringstream ss;
     ss << "Kerntopia v0.1.0 - SLANG-Centric GPU Benchmarking Suite\n\n";
-    ss << "Usage:\n";
-    ss << "  kerntopia info [--verbose]                           Show system information\n";
-    ss << "  kerntopia run <kernel> [options]                     Run specific kernel\n";
-    ss << "  kerntopia run all [options]                          Run all kernels\n\n";
-    ss << "Options:\n";
-    ss << "  --backend, -b <backend>     GPU backend (cuda, vulkan, cpu, dx12)\n";
+    
+    ss << "USAGE:\n";
+    ss << "  kerntopia <command> [options]\n";
+    ss << "  kerntopia --gtest_<option>              # Direct GTest mode\n\n";
+    
+    ss << "COMMANDS:\n";
+    ss << "  info [--verbose]                        Show system information\n";
+    ss << "  run <kernel|all> [options]              Run tests\n";
+    ss << "  list                                    List available tests\n";
+    ss << "  help                                    Show this help\n\n";
+    
+    ss << "  Use '<command> --help' for command-specific help\n\n";
+    
+    ss << "RUN OPTIONS:\n";
+    ss << "  --backend, -b <name>        GPU backend: cuda, vulkan, cpu\n";
     ss << "  --device, -d <id>           Target device ID (use after --backend)\n";
-    ss << "  --profile, -p <profile>     SLANG profile (glsl_450, cuda_sm_6_0, cuda_sm_7_0, cuda_sm_8_0, hlsl_6_0)\n";
-    ss << "  --target, -t <target>       Compilation target (spirv, ptx, glsl, hlsl)\n";
-    ss << "  --mode, -m <mode>           Test mode (functional, performance)\n";
-    ss << "  --jit                       Use just-in-time compilation\n";
-    ss << "  --precompiled               Use precompiled kernels (default)\n";
+    ss << "  --profile, -p <profile>     SLANG profile:\n";
+    ss << "                                cuda: cuda_sm_6_0, cuda_sm_7_0, cuda_sm_8_0\n";
+    ss << "                                vulkan: glsl_450\n";
+    ss << "  --target, -t <target>       Compilation target: spirv, ptx, glsl, hlsl\n";
+    ss << "  --mode, -m <mode>           Test mode: functional, performance\n";
+    ss << "  --jit                       Use just-in-time compilation (NOT IMPLEMENTED)\n";
+    ss << "  --precompiled               Use precompiled kernels (default)\n\n";
+    
+    ss << "GLOBAL OPTIONS:\n";
     ss << "  --verbose, -v               Verbose output\n";
-    ss << "  --logger, --log, --log-level <levels>   Logging control:\n";
-    ss << "                                -1=silent, 0=normal (default), 1=info, 2=debug\n";
-    ss << "                                Words: normal, info, debug/dbg\n";
+    ss << "  --logger, --log <levels>    Logging control:\n";
+    ss << "                                -1=silent, 0=normal, 1=info, 2=debug\n";
+    ss << "                                Words: normal, info, debug\n";
     ss << "                                Comma-separated: 1,2 or info,debug\n\n";
-    ss << "Examples:\n";
+    
+    ss << "GTEST INTEGRATION:\n";
+    ss << "  --gtest_list_tests          List all available GTest tests\n";
+    ss << "  --gtest_filter=<pattern>    Run tests matching pattern\n";
+    ss << "  --gtest_help                Show GTest options\n\n";
+    
+    ss << "EXAMPLES:\n";
+    ss << "  # Basic usage\n";
     ss << "  kerntopia info --verbose\n";
-    ss << "  kerntopia run conv2d --backend vulkan --device 0 --profile glsl_450 --target spirv\n";
-    ss << "  kerntopia run conv2d --backend cuda --device 0 --profile cuda_sm_7_0 --target ptx --jit\n\n";
-    ss << "Currently implemented: conv2d\n";
-    ss << "Planned kernels: vector_add, bilateral_filter, parallel_reduction, matrix_transpose\n";
+    ss << "  kerntopia list\n";
+    ss << "  kerntopia run conv2d\n\n";
+    
+    ss << "  # Backend selection\n";
+    ss << "  kerntopia run conv2d --backend vulkan\n";
+    ss << "  kerntopia run conv2d --backend cuda --device 0\n\n";
+    
+    ss << "  # Advanced configuration\n";
+    ss << "  kerntopia run conv2d --backend cuda --profile cuda_sm_7_0 --target ptx\n";
+    ss << "  kerntopia run all --backend vulkan --mode performance --logger info\n\n";
+    
+    ss << "  # GTest mode for advanced filtering\n";
+    ss << "  kerntopia --gtest_list_tests\n";
+    ss << "  kerntopia --gtest_filter=\"*CUDA*\"\n";
+    ss << "  kerntopia --gtest_filter=\"*Conv2D*VULKAN*D0*\"\n\n";
+    
+    ss << "TEST STATUS:\n";
+    ss << "  ✅ conv2d           - 2D Convolution (IMPLEMENTED)\n";
+    ss << "  🚧 vector_add       - Vector addition (PLACEHOLDER)\n";
+    ss << "  🚧 bilateral_filter - Bilateral filter (PLACEHOLDER)\n";
+    ss << "  🚧 reduction        - Parallel reduction (PLACEHOLDER)\n";
+    ss << "  🚧 transpose        - Matrix transpose (PLACEHOLDER)\n\n";
+    
+    ss << "For detailed test information: kerntopia list\n";
+    ss << "For system capabilities: kerntopia info\n";
+    
+    return ss.str();
+}
+
+std::string CommandLineParser::GetInfoHelpText() const {
+    std::stringstream ss;
+    ss << "kerntopia info - Show system information\n\n";
+    ss << "USAGE:\n";
+    ss << "  kerntopia info [--verbose]\n\n";
+    ss << "OPTIONS:\n";
+    ss << "  --verbose, -v    Show detailed system information including:\n";
+    ss << "                   - All detected backends and capabilities\n";
+    ss << "                   - Device specifications and memory\n";
+    ss << "                   - Driver versions and library paths\n";
+    ss << "                   - SLANG compilation targets\n\n";
+    ss << "EXAMPLES:\n";
+    ss << "  kerntopia info              # Basic system summary\n";
+    ss << "  kerntopia info --verbose    # Detailed information\n";
+    return ss.str();
+}
+
+std::string CommandLineParser::GetRunHelpText() const {
+    std::stringstream ss;
+    ss << "kerntopia run - Execute GPU compute kernels\n\n";
+    ss << "USAGE:\n";
+    ss << "  kerntopia run <kernel|all> [options]\n\n";
+    ss << "KERNELS:\n";
+    ss << "  conv2d         2D convolution kernel (IMPLEMENTED)\n";
+    ss << "  all            Run all implemented kernels\n\n";
+    ss << "OPTIONS:\n";
+    ss << "  --backend, -b <name>     Choose backend: cuda, vulkan, cpu\n";
+    ss << "  --device, -d <id>        Device ID (0, 1, 2...) - use after --backend\n";
+    ss << "  --profile, -p <profile>  SLANG profile for compilation\n";
+    ss << "  --target, -t <target>    Output format: spirv, ptx, glsl, hlsl\n";
+    ss << "  --mode, -m <mode>        Test type: functional, performance\n";
+    ss << "  --jit                    Compile at runtime (NOT IMPLEMENTED)\n";
+    ss << "  --logger <level>         Logging: -1=silent, 0=normal, 1=info, 2=debug\n\n";
+    ss << "EXAMPLES:\n";
+    ss << "  kerntopia run conv2d                                    # Use best available backend\n";
+    ss << "  kerntopia run conv2d --backend vulkan                   # Force Vulkan\n";
+    ss << "  kerntopia run conv2d --backend cuda --device 1          # CUDA device 1\n";
+    ss << "  kerntopia run all --mode performance --logger info      # Performance testing\n\n";
+    ss << "BACKEND-SPECIFIC EXAMPLES:\n";
+    ss << "  # CUDA with specific compute capability\n";
+    ss << "  kerntopia run conv2d --backend cuda --profile cuda_sm_7_0 --target ptx\n\n";
+    ss << "  # Vulkan with SPIR-V output\n";
+    ss << "  kerntopia run conv2d --backend vulkan --profile glsl_450 --target spirv\n\n";
+    ss << "For GTest-style filtering, use: kerntopia --gtest_filter=\"pattern\"\n";
+    return ss.str();
+}
+
+std::string CommandLineParser::GetListHelpText() const {
+    std::stringstream ss;
+    ss << "kerntopia list - Show available tests and backends\n\n";
+    ss << "USAGE:\n";
+    ss << "  kerntopia list\n\n";
+    ss << "DESCRIPTION:\n";
+    ss << "  Lists all kernels with implementation status, categorized by domain:\n";
+    ss << "  - Image Processing: conv2d, bilateral_filter\n";
+    ss << "  - Linear Algebra: reduction, transpose  \n";
+    ss << "  - Examples: vector_add\n\n";
+    ss << "  Shows which tests are implemented (✅) vs placeholders (🚧)\n\n";
+    ss << "RELATED COMMANDS:\n";
+    ss << "  kerntopia info                    # Show backend capabilities\n";
+    ss << "  kerntopia --gtest_list_tests      # List all GTest test cases\n";
+    ss << "  kerntopia run <kernel>            # Run specific kernel\n";
     return ss.str();
 }
 

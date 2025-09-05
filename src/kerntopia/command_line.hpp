@@ -83,6 +83,13 @@ public:
      * @brief Get help text
      */
     std::string GetHelpText() const;
+    
+    /**
+     * @brief Get context-sensitive help text for specific commands
+     */
+    std::string GetInfoHelpText() const;
+    std::string GetRunHelpText() const; 
+    std::string GetListHelpText() const;
 
 private:
     // Parsing helper methods
