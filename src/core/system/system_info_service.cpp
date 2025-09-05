@@ -37,12 +37,8 @@ void SystemInfoService::ShowSystemInfo(bool verbose, std::ostream& stream) {
         }
     }
     
-    // Display CPU runtime (always available)
-    stream << "  • CPU (Software) (v1.0.0)\n";
-    if (verbose) {
-        stream << "    Library: built-in\n";
-        stream << "    File Size: 0 bytes\n\n";
-    }
+    // CPU runtime is a placeholder - not actually implemented
+    // We'll show this in the unavailable backends section instead
     
     // Show unavailable backends
     if (verbose) {

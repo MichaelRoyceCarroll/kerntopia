@@ -190,15 +190,16 @@ Result<void> BackendFactory::DetectBackends() {
         KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Backend unavailable: Vulkan - " + info.error_message);
     }
     
-    // CPU backend (always available)
+    // CPU backend (placeholder - not yet implemented)
     BackendInfo cpu_info;
     cpu_info.type = Backend::CPU;
-    cpu_info.name = "CPU (Software)";
-    cpu_info.available = true;
+    cpu_info.name = "CPU (Software Fallback - PLACEHOLDER)";
+    cpu_info.available = false;  // Changed to false - not actually implemented
     cpu_info.version = "1.0.0";
     cpu_info.library_path = "built-in";
+    cpu_info.error_message = "CPU backend not yet implemented (software fallback for future development)";
     backend_info_[Backend::CPU] = cpu_info;
-    LOG_BACKEND_INFO("Detected backend: CPU");
+    KERNTOPIA_LOG_WARNING(LogComponent::BACKEND, "Backend placeholder: CPU - not yet implemented");
     
     return KERNTOPIA_VOID_SUCCESS();
 }
