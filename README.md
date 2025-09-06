@@ -1,141 +1,280 @@
-# Kerntopia: SLANG-Centric GPU Benchmarking Suite
+# Kerntopia 🌾✨
 
-A comprehensive SLANG-centric GPU compute benchmarking and testing suite designed to showcase canonical GPU computing kernels. Kerntopia targets GPU developers, SIGGRAPH attendees, hardware platform hiring managers, and GPU computing enthusiasts who want to learn SLANG as a disruptive platform language.
+**Kerntopia is comprehensive SLANG-centric GPU kernel benchmarking suite that makes kernel development accessible to everyone.**
 
-## Features
+Whether you're a curious developer wanting to demystify SLANG or a SIGGRAPH regular- this suite has your back.
 
-- **Multi-backend Support**: CUDA, Vulkan (with future DX12, CPU)
-- **Three Operational Modes**: Suite mode, standalone executables, Python wrapper
-- **Dynamic Runtime Loading**: Backends loaded at runtime, not link-time
-- **System Interrogation**: Comprehensive hardware/software capability detection
-- **Reproducible Results**: Complete audit trail with checksums, timestamps, file paths
-- **JIT and Precompile Modes**: Flexible compilation approaches
-- **Performance & Functional Testing**: GTest framework with statistical analysis
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CUDA](https://img.shields.io/badge/CUDA-12.0%2B-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![Vulkan](https://img.shields.io/badge/Vulkan-1.3-blue.svg)](https://vulkan.lunarg.com/)
+[![SLANG](https://img.shields.io/badge/SLANG-v2025.14.3-orange.svg)](https://github.com/shader-slang/slang)
 
-## Quick Start
+## ✨ What Makes Kerntopia Special
 
-### Prerequisites
+- 🚀 **Minimizes the Boilerplate Barrier**: Write SLANG kernels, run on CUDA + Vulkan easily
+- 🔍 **System Interrogation**: A hardware detective - show available devices and backend runtimes in use
+- 🎯 **Three Ways to Run Kernels**: Suite mode, standalone executables, or Python wrapper (WIP)
+- 📊 **Complete Audit Trails**: Every benchmark is reproducible with checksums & timestamps (TODO)
+- 🎓 **Discovery Focused**: Heavily commented examples and abstraction to keep the focus your kernel of interest.
 
-**System Requirements:**
-- Linux (WSL2 supported) or Windows
-- CMake 3.20+
-- C++17/20 compatible compiler (GCC 9+, Clang 10+, MSVC 2019+)
+## Quick Example
 
-**GPU Backends:**
-- **CUDA**: NVIDIA drivers + CUDA Toolkit 11.0+ (for NV4060+ hardware)
-- **Vulkan**: Modern Vulkan drivers (supports CPU llvmpipe for development)
+**Transform this craft scene with a Gaussian blur kernel:**
 
-### Build Instructions
+| Before (Original) | After (Gaussian Blur) |
+|---|---|
+| ![Original craft scene](assets/images/StockSnap_2Q79J32WX2_512x512.png) | ![Blurred result](assets/images/conv2d_output.png) |
 
-```bash
-# Clone and build
-git clone <repository-url> kerntopia
-cd kerntopia
-mkdir build && cd build
-
-# Configure (C++17 mode)
-cmake ..
-
-# Or enable C++20 for std::span
-cmake -DKERNTOPIA_USE_CPP20=ON ..
-
-# Build
-make -j$(nproc)
-```
-
-### Running Tests
+*Photo by Giulia Bertelli on StockSnap*
 
 ```bash
-# Suite mode - run all kernels
-./bin/kerntopia run all
+# One command, multiple backends, infinite possibilities
+❯ ./kerntopia run conv2d
+Kerntopia v0.1.0 - SLANG-Centric Kernel Execution Suite
+Explore compute kernels with abstracted backend selection, sandboxing, benchmarking, and more.
 
-# Suite mode - specific kernels
-./bin/kerntopia run conv2d,reduction --backend cuda
+Running Kerntopia tests with configuration:
+  Backend: ALL AVAILABLE BACKENDS
+  Mode: Functional
+  Compilation: precompiled
 
-# Standalone mode
-./bin/kerntopia-conv2d --input assets/images/test_1080p.png --output result.png
+Available backends: CUDA, VULKAN
 
-# Python wrapper
-cd ../python
-python kerntopia-harness.py run all --backends cuda,vulkan
+Running tests with filter: *Conv2D*
+
+Note: Google Test filter = *Conv2D*
+[==========] Running 2 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 2 tests from Conv2D_AllBackends/Conv2DParameterizedTest
+[ RUN      ] Conv2D_AllBackends/Conv2DParameterizedTest.GaussianFilter/CUDA_CUDA_SM_7_0_D0
+[       OK ] Conv2D_AllBackends/Conv2DParameterizedTest.GaussianFilter/CUDA_CUDA_SM_7_0_D0 (215 ms)
+[ RUN      ] Conv2D_AllBackends/Conv2DParameterizedTest.GaussianFilter/VULKAN_GLSL_450_D0
+[       OK ] Conv2D_AllBackends/Conv2DParameterizedTest.GaussianFilter/VULKAN_GLSL_450_D0 (85 ms)
+[----------] 2 tests from Conv2D_AllBackends/Conv2DParameterizedTest (300 ms total)
+
+[----------] Global test environment tear-down
+[==========] 2 tests from 1 test suite ran. (300 ms total)
+[  PASSED  ] 2 tests.
+
+✅ All 2 tests passed!
 ```
+
+## Status
+
+v0.1.0 - Initial Proof of concept pre-release!
+
+## Requirements
+
+### OS Support
+**Tested:** WSL2 + Ubuntu 24.04 (Win11 host)  
+**Expected:** Ubuntu 22.04+ Native  
+**Planned:** Windows 11 Native
+
+### Hardware
+- **CPU**: x86_64
+- **GPU**: NVIDIA GTX 1650+ (SM 7.0+) *or* Intel integrated graphics
+- **Vulkan**: Any Vulkan 1.0+ compatible device (Including CPU emulator)
+
+### Software Stack
+```bash
+# Ubuntu 24.04 essentials
+sudo apt update
+sudo apt install build-essential cmake git
+
+# GPU runtimes (choose your path)
+# CUDA: https://developer.nvidia.com/cuda-downloads
+# Vulkan SDK: https://vulkan.lunarg.com/sdk/home#linux
+```
+
+**Compiler:** GCC 13.3.0+ (Ubuntu 24.04), C++17 mode
+
+## Build & Run
+
+### Setup
+
+Ensure you have git-lfs installed (Used for test inputs):
+```bash
+sudo apt-get install git-lfs
+```
+Clone, build, and run:
+```bash
+git clone https://github.com/[username]/kerntopia.git
+cd kerntopia && mkdir build && cd build
+cmake .. && make -j$(nproc)
+
+# Your GPU benchmark suite is ready! 
+./kerntopia info --verbose  # See what GPUs you have
+./kerntopia run conv2d      # Run your first kernel
+```
+
+### Command Examples
+```bash
+# Suite mode - the full GTest experience
+./kerntopia run all                              # Everything, all backends
+./kerntopia run conv2d --backend cuda            # Specific kernel + backend  
+./kerntopia run conv2d --backend vulkan --device 0
+
+# Standalone mode - focused kernel program  
+./kerntopia-conv2d                               # Quick functional test
+./kerntopia-conv2d --backend vulkan --device 0  # Target specific hardware
+
+# System interrogation - know your hardware
+./kerntopia info --verbose                      # Full system analysis
+```
+
+## Architecture: Pain-Free Heterogeneous Development
+
+```mermaid
+flowchart TD
+    A["`**User Interface Layer**
+    • kerntopia CLI
+    • kerntopia-* standalone
+    • Python wrapper`"] --> B["`**Kernel Management**
+    • SLANG source kernels  
+    • Precompiled IR cache
+    • JIT compilation`"]
+    
+    B --> C["`**Backend Abstraction**
+    • Unified device interface
+    • Dynamic runtime loading
+    • Cross-platform compatibility`"]
+    
+    C --> D["`**CUDA Backend**
+    • NVIDIA GPU support
+    • PTX compilation
+    • cuDNN integration`"]
+    
+    C --> E["`**Vulkan Backend**
+    • Universal GPU support
+    • SPIR-V compilation  
+    • Cross-vendor compatibility`"]
+    
+    C --> F["`**Future Backends**
+    • DirectX 12
+    • CPU (x86_64)
+    • Metal (macOS)`"]
+    
+    D --> G["`**Hardware Layer**
+    • NVIDIA RTX/GTX
+    • System interrogation
+    • Performance monitoring`"]
+    
+    E --> H["`**Hardware Layer**  
+    • Intel integrated
+    • AMD discrete
+    • Multi-vendor support`"]
+```
+
+*The architecture eliminates heterogeneous boilerplate - write once in SLANG, run everywhere.*
+
+## Backends
+
+- **CUDA** (12.0+ SDK) ✅ *Tested: NVIDIA RTX 4060 CUDA 13.0 SDK*
+- **Vulkan** (1.3) ✅ *Tested: Vulkan CPU backend*
+
+**Coming Soon:**
+- CPU (x86_64) - Stubbed out
+- DirectX 12 - Planned
 
 ## Kernel Roster
 
-### Image Processing
-- **Convolution 2D** - Standard image convolution with configurable kernels
-- **Bilateral Filter** - Edge-preserving smoothing filter
+**v0.1.0 Status:** Conv2D Gaussian blur available on CUDA + Vulkan backends
 
-### Linear Algebra  
-- **Parallel Reduction** - Sum/Max/Min operations with optimized GPU patterns
-- **Matrix Transpose** - Efficient matrix transposition with memory coalescing
+**Bold** = Implemented | *Italic* = Planned
 
-### Examples
-- **Vector Add** - Template for adding new kernels
+### Image Processing Kernels
+- **Convolution (2D)** - [Gaussian blur demo](src/tests/conv2d/)
+- *Bilateral Filter* - Edge-preserving smoothing
+- *Sobel Edge Detection* - Computer vision classic
+- *Histogram Computation* - Statistical analysis
 
-See [ROSTER.md](docs/ROSTER.md) for detailed kernel descriptions and performance characteristics.
+### Linear Algebra Kernels
+- *Parallel Reduction* - Sum/Max/Min with GPU optimization patterns
+- *Matrix Transpose* - Memory coalescing showcase
+- *Parallel Prefix Scan* - Fundamental GPU algorithm
+
+### Physics & Simulation
+- *N-Body Simulation* - Gravitational dynamics
+- *Monte Carlo Forest Layout* - Procedural generation
+
+**📋 [Complete Kernel Catalog →](docs/ROSTER.md)**
 
 ## System Interrogation
 
-Kerntopia provides comprehensive system analysis rivaling `nvidia-smi` and `clinfo`:
+*Getting runtimes working on heterogeneous systems is always the hard part.*
+
+Kerntopia's built-in interrogator rivals the best tools:
 
 ```bash
-# System overview
-./bin/kerntopia info --system
-
-# Detailed device information
-./bin/kerntopia info --devices --verbose
-
-# Runtime detection
-./bin/kerntopia info --runtimes
+./kerntopia info --verbose
 ```
 
-## Documentation
+**Sample Output (Subject to change):**
+```
+🌾 Kerntopia System Interrogation v0.1.0
 
-- [Build Instructions](docs/BUILD.md) - Detailed build setup for all platforms
-- [Usage Guide](docs/USAGE.md) - Command-line reference and examples
-- [Adding Kernels](docs/ADDING_KERNELS.md) - Developer guide for new kernels
-- [Kernel Catalog](docs/ROSTER.md) - Complete kernel descriptions and benchmarks
+CUDA Backend: ✅ Available
+├─ Runtime: CUDA 13.0 (/usr/local/cuda/lib64/libcudart.so)
+├─ Device 0: NVIDIA GeForce RTX 4060 (SM 8.9, 8GB)
+└─ Compiler: nvcc 13.0 (/usr/local/cuda/bin/nvcc)
 
-## Development
+Vulkan Backend: ✅ Available  
+├─ Runtime: libvulkan.so.1 (Vulkan 1.3.290)
+├─ Device 0: CPU
+└─ Compiler: glslangValidator 14.3.0
 
-Want to add your own kernel? Start with the [basic vector add example](examples/basic_vector_add/):
+SLANG Compiler: v2025.14.3 (FetchContent, 234MB)
+System: WSL2 Ubuntu 24.04, GCC 13.3.0, x86_64
+```
+
+## Developer Integration (WIP)
+
+
+**Want to add your own kernel?** Start here:
 
 ```bash
-cd examples/basic_vector_add
-mkdir build && cd build
-cmake ..
-make
-./vector_add_standalone --help
+# Copy the vector_add template
+cp -r examples/vector_add my_awesome_kernel
+cd my_awesome_kernel
+# Edit kernel.slang, update CMakeLists.txt
+# Build and run!
 ```
 
-## Architecture
+*Future: Complete integration guide in [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)*
 
-Kerntopia uses a modular architecture with three operational modes:
+## Third-Party Dependencies (Included)
 
-1. **Suite Mode** (`kerntopia`) - Complete test orchestration with GTest framework
-2. **Standalone Mode** (`kerntopia-*`) - Individual kernel executables for focused analysis  
-3. **Wrapper Mode** - Python harness with advanced reporting and result serialization
+- **[STB Libraries](third-party/stb/)** - Image I/O (MIT/Public Domain)  
+- **[TinyEXR](third-party/tinyexr/)** - HDR support (BSD 3-Clause)
+- **[SLANG Compiler](https://github.com/shader-slang/slang)** - Auto-fetched via CMake
 
-The system features dynamic backend loading, comprehensive audit trails, and educational documentation throughout.
+## Acknowledgments
 
-## License
+**Development:** Claude Code and Sonnet Teams  
+**SLANG Platform:** Khronos SLANG and Slang Playground developers
 
-*License to be determined - currently in development phase*
+## Project Metrics
+
+*Recorded LLM scaffolding (undercount):*
+- **Input/Output Prompts:** 48K words, 8.5K lines, 63.8K tokens
+- **Generated Code:** 41.5K words, 12.4K lines, 116.8K tokens
 
 ## Contributing
 
-This project is designed as an educational resource. While not currently accepting external contributions, the codebase serves as a comprehensive example of SLANG kernel development and GPU compute best practices.
+Ready to contribute? Check out our [contribution guidelines](CONTRIBUTING.md) to get started. We use a Contributor License Agreement (CLA) to ensure the project can evolve while recognizing all contributors.
 
-## Attribution
+## License
 
-**Third-Party Libraries:**
-- [STB Libraries](third-party/stb/) - Image I/O (MIT/Public Domain)
-- [TinyEXR](third-party/tinyexr/) - HDR image support (BSD)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-See individual library directories for complete license information.
+### Attribution Request
+
+While the MIT license only requires copyright notice retention, **attribution** in benchmark results or commercial usage is appreciated. See [ATTRIBUTION.md](ATTRIBUTION.md) for guidelines on citing Kerntopia in your work.
 
 ---
 
 **Version:** 0.1.0  
-**Target Audience:** GPU developers, SIGGRAPH attendees, hardware platform hiring managers, GPU computing enthusiasts
+**Mission:** Democratize GPU compute development through SLANG  
+**Target:** GPU developers, SIGGRAPH attendees, GPU enthusiasts
+
+*Remember: Every expert was once a beginner.* ✨🌾✨
