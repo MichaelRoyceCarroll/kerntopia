@@ -1,6 +1,6 @@
 # Kerntopia 🌾✨
 
-**Kerntopia is comprehensive SLANG-centric GPU kernel benchmarking suite that makes kernel development accessible to everyone.**
+**Kerntopia is a comprehensive SLANG-centric GPU kernel benchmarking suite that makes kernel development accessible to everyone.**
 
 Whether you're a curious developer wanting to demystify SLANG or a SIGGRAPH regular- this suite has your back.
 
